@@ -119,6 +119,7 @@ def main():
         target = tools_out / source.relative_to(ROOT)
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, target)
+        shutil.copymode(source, target)
     (out / "data").symlink_to(repo / "data", target_is_directory=True)
     (out / "config.yaml").write_text(cfg_path.read_text(encoding="utf-8"), encoding="utf-8")
     (out / "handoff").mkdir()

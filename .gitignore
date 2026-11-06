@@ -48,3 +48,7 @@ tools/failure_all_collector/
 *.partial
 
 tools/worktrees/
+# Immutable runtime snapshots, weights and pre-Git archives are not source code.
+tools/s5_six_node_runtime_20261106/
+tools/s5_six_node_step17500_20261106/
+tools/pre_six_node_git_import_20261106/

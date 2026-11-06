@@ -36,6 +36,13 @@ def main():
             path.write_bytes(override.read_bytes())
     for key, value in changed.items():
         prepared["files"][key] = value["after"]
+    for base in (root / "model_design", root / "tools"):
+        for path in base.rglob("*.py"):
+            key = path.relative_to(root).as_posix()
+            checksum = digest(path)
+            if prepared["files"].get(key) != checksum and key not in changed:
+                changed[key] = {"before": prepared["files"].get(key), "after": checksum}
+            prepared["files"][key] = checksum
     commit = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
     prepared["tool_git_commit"] = commit
     write_json(prepared_path, prepared)

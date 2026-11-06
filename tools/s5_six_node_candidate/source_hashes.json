@@ -1,6 +1,6 @@
 {
   "schema_version": "s5.source_pin.v2",
-  "source_git_commit": "4e4c0eefc69a1eddb9467db4009393d6f17b66ca",
+  "source_git_commit": "4a166882100abfa1f16aa523cfcbc1bd0f2130ed",
   "files": {
     "model_design/configs/s5_continuous.yaml": "93992c8ace7602edeceb1915da537ef080a4b797a1174d9f5b0bc06624f39c06",
     "model_design/muse_encoder/__init__.py": "a776e10cc49ef51246579f5cde53bd6ebce21ef922bfb1d2f306bd590c77d3f2",
@@ -77,6 +77,8 @@
     "muse/encoders/electrolyte.py": "c496a009e8784024da36fa50353c68ae7eba8844d87b60900289367c1bcec9e9",
     "muse/encoders/esm2_seq.py": "6290cf26f764a699253ad3a18c20131cc304f7077b8db612f4e38afd02994455",
     "muse/encoders/unimol2_mol.py": "b0eb4c81776d687f30d0895bc4ee524c8a4ef194055e01141cd8e3cd70cb9186",
+    "muse/heads.py": "3118d96c546b986170f8f359092dd4c0e8f202c4109a367da011588e36c31bbe",
+    "muse/official.py": "331c9b64dd4e0d4912ab08d77f6f9afce1bcba9e0b18e167f48ec66a6c98c0a0",
     "muse/pretrain/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "muse/pretrain/audit_aux.py": "eb0cfef2b78470b331b85096d3fafc7adb4e6aa43587730acae0ffcd9a01ba9d",
     "muse/pretrain/build_fingerprints.py": "d46e8a645ed27212a23219cdbbafb769b1cd7b3c08b528640abf2ae04480e58a",
@@ -86,6 +88,10 @@
     "muse/pretrain/deleak.py": "1a5da51c33f7e8040727a41dd40daedee0039544952145408b9cfb2d942de3ce",
     "muse/pretrain/inventory_official.py": "a9ee585dd09dfd9ba0f9c21d93226f06a73c8646b95448b9e2fe383d2afceb27",
     "muse/pretrain/repair_descriptor_alignment.py": "1e4386f764850d72d1db725744dfb180d5e36f5d667dbbc104756b5939ae8416",
-    "muse/pretrain/write_manifest.py": "4ec6da01119bc4376b9c64493e0399b4b8ad0df10e1e8b50b94687e5d1e6f96e"
+    "muse/pretrain/write_manifest.py": "4ec6da01119bc4376b9c64493e0399b4b8ad0df10e1e8b50b94687e5d1e6f96e",
+    "muse/run.py": "4023254186c48da09aecd3bd8ba4aa95db9f38320a2ec0d06c598545e13be52e",
+    "muse/run_batch.py": "410dc738c54ac3a46031bb936b89bd4bb2376360f8f36d3b2b0fda706cdb3336",
+    "muse/score.py": "a2c9aedd66c8512169cddb264caa04e3e9d546f3b948c806f1ce8fb31aa1c854",
+    "muse/tasks.py": "984ccdc7ed3c23134974d1d48e769628c03760faf309ca6eece780b7bb03ab13"
   }
 }

@@ -36,7 +36,7 @@ from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
-from ..structures import align_coordinates, require_rdkit
+from ..structures import align_coordinates, mol_from_sdf_bytes, require_rdkit
 from .aux import AUX_ROOT, AUX_SOURCES, AuxSource, NamespacedRecord
 from .aux_index import AuxIndex
 from .corpora import PRETRAIN_ROOT, PROJECT_ROOT
@@ -187,7 +187,6 @@ def _official_graph_variant(smiles: str, mol):
 
 def read_sdf_mol_at(handle, offset: int, record_id: str):
     """在 SDF 文件 offset 处读取单条记录，按首行名称严格核验 record_id。"""
-    chem = require_rdkit()
     handle.seek(int(offset))
     block = []
     while True:
@@ -200,13 +199,7 @@ def read_sdf_mol_at(handle, offset: int, record_id: str):
     name = block[0].decode("utf-8").strip()
     if name != record_id:
         raise ValueError(f"SDF offset={offset}: 记录名 {name!r} != 期望 {record_id!r}")
-    supplier = chem.ForwardSDMolSupplier(
-        io.BytesIO(b"".join(block)), removeHs=False, sanitize=True
-    )
-    mol = next(supplier, None)
-    if mol is None:
-        raise ValueError(f"SDF 记录 {record_id}: 严格解析失败")
-    return mol
+    return mol_from_sdf_bytes(b"".join(block), record_id, allow_unsanitized=True)
 
 
 def load_geom_pickle(handle, offset: int, size: int):

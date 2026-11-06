@@ -123,6 +123,34 @@ class StructureAlignmentTests(unittest.TestCase):
             align_coordinates("COC", source)
 
 
+class ChemicalRecoveryTests(unittest.TestCase):
+    def test_unsanitized_topology_has_real_graph_and_audit_metadata(self):
+        fz = RecordFeaturizer(small_config())
+        smiles = "O=C1C(=CC2=CC=C(c3ccc(Cl)cc3)O2)SC(=S)N1CCc(o)o"
+        with self.assertRaises(ValueError):
+            fz.featurize_molecule(smiles)
+        record = fz.featurize_molecule(smiles, strict=False)
+        self.assertEqual(record.meta["parse_mode"], "unsanitized_topology")
+        self.assertTrue(record.meta["degraded"])
+        self.assertIsNone(record.coords)
+        self.assertGreater(record.n_real_tokens, 10)
+        self.assertGreater(int(record.bond_mat.sum()), 0)
+
+    def test_missing_input_is_one_unknown_element_without_fake_bonds(self):
+        fz = RecordFeaturizer(small_config())
+        record = fz.featurize_molecule("nan", strict=False)
+        self.assertEqual(record.n_real_tokens, 1)
+        self.assertEqual(record.token_ids[1], 0)
+        self.assertTrue(record.meta["missing_input"])
+        self.assertTrue(record.meta["degraded"])
+        self.assertFalse(record.bond_mat.any())
+        self.assertIsNone(record.coords)
+        sequence = fz.featurize_polymer(psmiles="nan", sequence=True, strict=False)
+        self.assertEqual(sequence.n_real_tokens, 1)
+        self.assertTrue(sequence.meta["missing_input"])
+        self.assertEqual(sequence.token_ids[1], fz.tk["psmiles"].unk_id)
+
+
 class AtomFeatureTests(unittest.TestCase):
     def setUp(self):
         self.featurizer = RecordFeaturizer(small_config())

@@ -55,6 +55,8 @@ class FastEvalTest(unittest.TestCase):
                 return {"cached_splits": ["dataset/subset/train"],
                         "summary": {"final_score": None, "scored_tasks": 0, "num_tasks": 90}}
 
+            self.addCleanup(setattr, D, "encode_split_cached", D.encode_split_cached)
+            self.addCleanup(setattr, D, "_read_sdf_selected", D._read_sdf_selected)
             argv = [
                 "fast_eval.py", "--checkpoint", str(checkpoint), "--output-dir", str(output),
                 "--devices", "0", "--cpu-workers", "2", "--batch-size", "8",

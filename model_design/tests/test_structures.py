@@ -133,6 +133,37 @@ class AromaticRepresentationAlignmentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "原子数或键数不一致"):
             align_coordinates("Cn1cccc1", source)
 
+    def test_unsanitized_topology_is_explicit_and_annotations_are_preserved(self):
+        from muse_encoder.structures import (
+            MissingChemicalInput, graph_from_smiles, mol_degraded, mol_mode,
+        )
+
+        smiles = "O=C1C(=CC2=CC=C(c3ccc(Cl)cc3)O2)SC(=S)N1CCc(o)o"
+        with self.assertRaises(ValueError):
+            graph_from_smiles(smiles)
+        mol = graph_from_smiles(smiles, allow_unsanitized=True)
+        self.assertEqual(mol_mode(mol), "unsanitized_topology")
+        self.assertTrue(mol_degraded(mol))
+        self.assertGreater(mol.GetNumAtoms(), 10)
+        annotated = graph_from_smiles(
+            "[NH3+]Cc1ccc(cc1)C(=O)N[C@H]1Cc2cccc(c2O[B]1(O)O)C(=O)O\t5FQB_LIGAND",
+            allow_unsanitized=True,
+        )
+        self.assertEqual(annotated.GetProp("_muse_annotation_0"), "5FQB_LIGAND")
+        with self.assertRaises(MissingChemicalInput):
+            graph_from_smiles("nan", allow_unsanitized=True)
+
+    def test_coordinate_mismatch_requires_an_explicit_1d_decision(self):
+        from muse_encoder.structures import alignment_mode
+
+        source = _with_coordinates(Chem.MolFromSmiles("CCC"))
+        with self.assertRaises(ValueError):
+            align_coordinates("CCO", source)
+        target, coords, mapping = align_coordinates("CCO", source, allow_1d_fallback=True)
+        self.assertIsNone(coords)
+        self.assertIsNone(mapping)
+        self.assertEqual(alignment_mode(target), "smiles_1d_unmatched")
+
 
 if __name__ == "__main__":
     unittest.main()

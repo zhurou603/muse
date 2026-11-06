@@ -327,6 +327,8 @@ def _topology_mapping(chem, source, target, max_candidates=10000):
     for aromatic/Kekulé and SDF bond-perception differences.  Atomic number,
     isotope, formal charge, original hydrogen count and radical count must match
     at every mapped atom.  Specified stereo conflicts are rejected below.
+    Both partial and complete search states count toward max_candidates;
+    exceeding the budget raises instead of guessing a mapping.
     """
     n = target.GetNumAtoms()
     if source.GetNumAtoms() != n or source.GetNumBonds() != target.GetNumBonds():
@@ -350,6 +352,7 @@ def _topology_mapping(chem, source, target, max_candidates=10000):
     mapping = [-1] * n
     used = set()
     complete = 0
+    visited = 0
 
     def stereo_compatible(candidate):
         try:
@@ -376,7 +379,10 @@ def _topology_mapping(chem, source, target, max_candidates=10000):
         return True
 
     def search(depth):
-        nonlocal complete
+        nonlocal complete, visited
+        visited += 1
+        if visited > max_candidates:
+            raise RuntimeError(f"原子映射搜索节点超过{max_candidates}，停止，不能确认映射")
         if depth == n:
             complete += 1
             return tuple(mapping) if stereo_compatible(mapping) else None

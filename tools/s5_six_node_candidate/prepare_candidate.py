@@ -38,6 +38,8 @@ def main():
         "/yinghepool/tech-dcu/zhaoyao/model_design/runs/s5-continuous-four-domain-v1/main"))
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--skip-log", type=Path,
+                        help="已审核的追加式排除清单；必须包含源run的全部历史记录")
     args = parser.parse_args()
     require(not args.output.exists(), "Output already exists; use a new candidate directory")
     repo = args.repo.resolve()
@@ -134,8 +136,12 @@ def main():
     (out / "handoff").mkdir()
     shutil.copyfile(cp, out / "handoff/source.pt")
     require(digest(out / "handoff/source.pt") == cp_hash, "Checkpoint changed while copying")
-    skip_path = args.source_run / "data_skips.jsonl"
+    base_skip_path = args.source_run / "data_skips.jsonl"
+    skip_path = (args.skip_log or base_skip_path).resolve()
     if skip_path.exists():
+        if skip_path != base_skip_path:
+            require(skip_path.read_bytes().startswith(base_skip_path.read_bytes()),
+                    "追加排除清单未完整包含源run历史，拒绝丢失坏样本排除")
         skip_hash = digest(skip_path)
         shutil.copyfile(skip_path, out / "handoff/data_skips.jsonl")
         require(digest(out / "handoff/data_skips.jsonl") == skip_hash == digest(skip_path),
@@ -147,6 +153,7 @@ def main():
                     require(isinstance(record["source"], str) and int(record["row"]) >= 0,
                             "Invalid source skip record")
         contract["inherited_skip_sha256"] = skip_hash
+        contract["inherited_skip_source"] = str(skip_path)
     else:
         (out / "handoff/data_skips.jsonl").write_text("", encoding="utf-8")
         contract["inherited_skip_sha256"] = digest(out / "handoff/data_skips.jsonl")

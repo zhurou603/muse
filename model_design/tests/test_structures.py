@@ -8,7 +8,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from muse_encoder.structures import align_coordinates
+from muse_encoder.structures import align_coordinates, _topology_mapping
 
 from rdkit import Chem
 
@@ -163,6 +163,21 @@ class AromaticRepresentationAlignmentTests(unittest.TestCase):
         self.assertIsNone(coords)
         self.assertIsNone(mapping)
         self.assertEqual(alignment_mode(target), "smiles_1d_unmatched")
+
+
+class TopologySearchBudgetTests(unittest.TestCase):
+    def test_partial_search_states_have_a_hard_budget(self):
+        source = Chem.MolFromSmiles("CC")
+        target = Chem.MolFromSmiles("CC")
+        with self.assertRaisesRegex(RuntimeError, "搜索节点超过2"):
+            _topology_mapping(Chem, source, target, max_candidates=2)
+
+    def test_valid_mapping_is_unchanged_within_budget(self):
+        source = Chem.MolFromSmiles("CC")
+        target = Chem.MolFromSmiles("CC")
+        mapping = _topology_mapping(Chem, source, target)
+        self.assertIsNotNone(mapping)
+        self.assertEqual(len(mapping), 2)
 
 
 if __name__ == "__main__":

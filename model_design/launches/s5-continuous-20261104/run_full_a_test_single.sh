@@ -10,10 +10,11 @@ export CUDA_VISIBLE_DEVICES=7
 PY=/home/zhaoyao/miniconda3/envs/muse-pretrain/bin/python
 DATA=$ROOT/data/muse-a/MUSE-A/data
 EVAL=$ROOT/data/muse-a/eval/MUSE-eval
+CACHE_ROOT=${CACHE_ROOT:-$ROOT/data/pretrain/cache/frozen_eval}
 mkdir -p "$RUN"
 "$PY" "$ROOT/model_design/launches/eval16-20261027/fast_eval.py" \
   --checkpoint "$CKPT" --output-dir "$RUN" \
-  --cache-root "$ROOT/data/pretrain/cache/frozen_eval" \
+  --cache-root "$CACHE_ROOT" \
   --external-cache "$ROOT/data/pretrain/cache/omc25" \
   --device cuda:0 --devices 0 --cpu-workers 14 --batch-size 64 \
   --train-cap 50000 --second-split test --single-seed \

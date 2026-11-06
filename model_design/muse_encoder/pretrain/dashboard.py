@@ -48,6 +48,7 @@ for _path in (str(PROJECT_ROOT), str(MODEL_DESIGN_ROOT)):
 from muse import tasks as T  # noqa: E402
 from muse_encoder.config import MuseConfig  # noqa: E402
 from muse_encoder.featurize import RecordFeaturizer  # noqa: E402
+from muse_encoder.structures import mol_from_sdf_bytes  # noqa: E402
 from muse_encoder.inference import (  # noqa: E402
     _can_window,
     _encode_compatible,
@@ -426,8 +427,6 @@ def _external_base(data_root: Path, subset: T.Subset) -> Path:
 
 
 def _read_sdf_selected(path: Path, selected: set[str]) -> tuple[dict[str, Any], dict[str, str]]:
-    from rdkit import Chem
-
     found = {}
     failed = {}
     seen = set()
@@ -445,13 +444,7 @@ def _read_sdf_selected(path: Path, selected: set[str]) -> tuple[dict[str, Any], 
             seen.add(key)
             if key in selected:
                 try:
-                    supplier = Chem.ForwardSDMolSupplier(
-                        io.BytesIO(b"".join(block)), removeHs=False, sanitize=True
-                    )
-                    mol = next(supplier, None)
-                    if mol is None:
-                        raise ValueError(f"SDF 严格解析失败: {key}")
-                    found[key] = mol
+                    found[key] = mol_from_sdf_bytes(b"".join(block), key)
                 except Exception as exc:
                     failed[key] = str(exc)[:500]
                 if len(found) + len(failed) == len(selected):
@@ -645,11 +638,12 @@ def _peptide_sequence_stats(sequence: str) -> dict[str, Any]:
         char for char in chars
         if char not in _ALLOWED_RESIDUES and char not in _ALLOWED_LOWER and char != "x"
     })
-    if unsupported:
-        raise ValueError(f"肽序列含当前残基/原子路由不支持的修饰记号: {unsupported}")
     return {
         "lowercase_d_residues": int(lower),
         "ambiguous_residues": int(ambiguous),
+        "unsupported_notation": unsupported,
+        "degraded": bool(unsupported),
+        "encoding_policy": "unknown_tokens_preserved" if unsupported else "residue_tokens",
         "case_handling": "lowercase retained as D-residue chirality feature; no silent upper fallback",
     }
 
@@ -780,7 +774,8 @@ def _validate_graph_repair(entry, payload, artifact_root: Path, source_hashes: d
 
 def _validate_sequence_repair(entry, source_hashes: dict) -> None:
     if entry.get("representation") not in (
-            "smiles_sequence", "raw_peptide_sequence", "missing_polymer_sequence"):
+            "smiles_sequence", "unsanitized_topology", "raw_peptide_sequence",
+            "missing_polymer_sequence"):
         raise ValueError("未知输入修复表示")
     source_jsonl = entry.get("source_jsonl")
     if not isinstance(source_jsonl, str):
@@ -924,13 +919,9 @@ def normalize_record(record: Mapping[str, Any], resolver: Optional[ExternalStruc
         sequence = out["inputs"].get("sequence")
         if not isinstance(sequence, str) or not sequence.strip():
             raise ValueError(f"{record['id']}: peptide_measurement 缺少 sequence")
+        stats = _peptide_sequence_stats(sequence)
         if registered is not None and registered.get("representation") == "raw_peptide_sequence":
-            stats = {
-                "uninterpreted_modification_notation": True,
-                "policy": "preserve raw characters; unsupported characters become unknown residue tokens",
-            }
-        else:
-            stats = _peptide_sequence_stats(sequence)
+            stats["uninterpreted_modification_notation"] = True
         if "x" in sequence:
             out["inputs"]["sequence"] = sequence.replace("x", "X")
             stats["unknown_x_handling"] = "lowercase x -> unknown X without D chirality"
@@ -949,7 +940,17 @@ def _prepare_registered_sequence(featurizer: RecordFeaturizer, raw: Mapping[str,
     inputs = raw["inputs"]
     sample_type = raw.get("sample_type")
     representation = repair["representation"]
-    if representation == "smiles_sequence":
+    if representation == "unsanitized_topology":
+        if sample_type in ("molecule", "conformer"):
+            record = featurizer.featurize_molecule(inputs["smiles"], strict=False)
+        elif sample_type == "protein_ligand":
+            record = featurizer.featurize_protein_ligand(
+                inputs["protein_sequence"], inputs["ligand_smiles"], strict=False)
+        else:
+            raise ValueError(f"{sample_type} 不支持注册的非严格拓扑")
+        if record.coords is not None or record.meta.get("parse_mode") != "unsanitized_topology":
+            raise ValueError("非严格拓扑表示不得携带未验证坐标或错误解析模式")
+    elif representation == "smiles_sequence":
         if sample_type in ("molecule", "conformer"):
             record = featurizer.featurize_molecule(
                 inputs["smiles"], sequence=True, strict=False)
@@ -1022,6 +1023,8 @@ def _prepare_featurized(featurizer: RecordFeaturizer, raw: Mapping[str, Any]):
     for key in ("_normalization", "_peptide_stats"):
         if key in raw:
             record.meta[key.lstrip("_")] = raw[key]
+    if (raw.get("_peptide_stats") or {}).get("degraded"):
+        record.meta["degraded"] = True
     repair = raw.get("_official_graph_repair")
     if repair is not None:
         actual = featurizer.official_graph_fingerprint(record)

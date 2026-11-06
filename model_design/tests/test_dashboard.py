@@ -235,8 +235,14 @@ class InputNormalizationTests(unittest.TestCase):
         self.assertEqual(unknown_prepared.token_ids[3], load_tokenizers()["residue"].vocab["X"])
         bad = dict(raw)
         bad["inputs"] = {"sequence": "R2(R2)KW3", "context": {}}
-        with self.assertRaisesRegex(ValueError, "修饰记号"):
-            D.normalize_record(bad)
+        bad_normalized = D.normalize_record(bad)
+        bad_prepared = D._prepare_featurized(self.featurizer, bad_normalized)
+        self.assertEqual(bad_normalized["_peptide_stats"]["unsupported_notation"],
+                         ["(", ")", "2", "3"])
+        self.assertEqual(bad_normalized["_peptide_stats"]["encoding_policy"],
+                         "unknown_tokens_preserved")
+        self.assertTrue(bad_prepared.meta["degraded"])
+        self.assertEqual(bad_prepared.n_real_tokens, 9)
 
     def test_polymer_electrolyte_variants(self):
         pe1 = {
@@ -417,6 +423,40 @@ class InputNormalizationTests(unittest.TestCase):
                 tampered = dict(records[0], inputs={"smiles": "different-invalid"})
                 with self.assertRaisesRegex(RuntimeError, "原始输入指纹"):
                     D.normalize_record(tampered)
+            finally:
+                D.configure_official_graph_repairs(None)
+
+    def test_registered_unsanitized_topology_preserves_graph_without_coordinates(self):
+        from unittest.mock import patch
+
+        raw = {
+            "id": "unsanitized-complex", "sample_type": "protein_ligand",
+            "inputs": {"protein_sequence": "ACd",
+                       "ligand_smiles": "O=C1C(=CC2=CC=C(c3ccc(Cl)cc3)O2)SC(=S)N1CCc(o)o"},
+            "external_inputs": [],
+        }
+        source = self.root / "unsanitized.jsonl"
+        source.write_text(json.dumps(raw) + "\n", encoding="utf-8")
+        entry = {
+            "record_id": raw["id"], "representation": "unsanitized_topology",
+            "input_fingerprint": D._input_repair_fingerprint(raw),
+            "source_jsonl": str(source), "source_jsonl_sha256": D.sha256_file(source),
+            "original_errors": ["synthetic invalid valence"],
+        }
+        manifest = self.root / "unsanitized-repair.json"
+        manifest.write_text(json.dumps({
+            "schema": "muse_encoder.input_repairs.v1", "contains_labels": False,
+            "artifact_dir": "unused", "repairs": [entry],
+        }), encoding="utf-8")
+        with patch.object(D, "DATA_ROOT", self.root):
+            D.configure_official_graph_repairs(manifest)
+            try:
+                prepared = D._prepare_featurized(self.featurizer, D.normalize_record(raw))
+                self.assertEqual(prepared.meta["parse_mode"], "unsanitized_topology")
+                self.assertTrue(prepared.meta["degraded"])
+                self.assertIsNone(prepared.coords)
+                self.assertGreater(prepared.meta["ligand_length"], 10)
+                self.assertFalse(prepared.meta["ligand_sequence_frontend"])
             finally:
                 D.configure_official_graph_repairs(None)
 

@@ -64,8 +64,9 @@ class ControlledStopTests(unittest.TestCase):
                 batch = {"token_ids": torch.ones(2, 3, dtype=torch.long)}
                 target = torch.ones(2, 1)
                 yield batch, target
+        model = trainer.model
         def forward(batch, target):
-            prediction = trainer.model(batch["token_ids"].float())
+            prediction = model(batch["token_ids"].float())
             return {"total": (prediction - target).square().mean()}
         trainer.model.forward = forward
         trainer.fit(stream, {"schema": "test"})

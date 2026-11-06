@@ -129,7 +129,8 @@ def start(args):
                         "NCCL_DEBUG_SUBSYS": "INIT,NET", "S5_SESSION_ID": session_path.stem,
                         "S5_CONTROL_FILE": str(Path(session["run_dir"]) / "control/stop.json"),
                         "NCCL_IB_HCA": "=mlx5_bond_0:1,mlx5_bond_1:1,mlx5_bond_2:1,mlx5_bond_3:1"})
-            for name in ("ROCR_VISIBLE_DEVICES", "NCCL_DEBUG_FILE", "PYTHONHOME"):
+            for name in ("ROCR_VISIBLE_DEVICES", "NCCL_DEBUG_FILE", "PYTHONHOME",
+                         "S5_SSH_PASSWORD", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE"):
                 env.pop(name, None)
             command = [PYTHON, "-B", "-u", "-m", "torch.distributed.run", "--nnodes=6",
                        "--nproc_per_node=8", f"--node_rank={rank}", "--max_restarts=0",

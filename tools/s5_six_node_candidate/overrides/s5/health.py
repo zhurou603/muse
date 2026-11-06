@@ -332,7 +332,8 @@ def _append_jsonl(path: Path, value: dict[str, Any]) -> None:
 
 def ssh_options():
     import shlex
-    values = shlex.split(os.environ.get("S5_SSH_OPTIONS", ""))
+    values = ["-o", f"BatchMode={'no' if os.environ.get('S5_SSH_PASSWORD_AUTH') else 'yes'}"]
+    values += shlex.split(os.environ.get("S5_SSH_OPTIONS", ""))
     if os.environ.get("S5_KNOWN_HOSTS"):
         values += ["-o", f"UserKnownHostsFile={os.environ['S5_KNOWN_HOSTS']}",
                    "-o", "StrictHostKeyChecking=yes"]

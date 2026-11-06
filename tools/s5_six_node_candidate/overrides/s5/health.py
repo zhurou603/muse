@@ -132,10 +132,15 @@ class RankEventLogger:
             self.phase = "error"
         self._write("error", error_type=type(exc).__name__, error=str(exc)[:500])
 
-    def stop(self, status: str = "stopped", reason: str = "") -> None:
+    def stop(self, status: str = "stopped", reason: str = "",
+             optimizer_step: int | None = None, micro_step: int | None = None) -> None:
         if self._stopped:
             return
         self._stopped = True
+        if optimizer_step is not None:
+            self.optimizer_step = int(optimizer_step)
+        if micro_step is not None:
+            self.micro_step = int(micro_step)
         self._status = status
         self._stop_event.set()
         if self._thread is not None:

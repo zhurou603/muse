@@ -384,7 +384,8 @@ def main():
         finally:
             rank_logger.stop(
                 "completed" if trainer.state.step >= args.stop_after else "stopped",
-                "fit_finished",
+                "fit_finished", optimizer_step=trainer.state.step,
+                micro_step=trainer.state.micro_step,
             )
 
 

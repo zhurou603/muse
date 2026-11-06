@@ -13,15 +13,8 @@ import subprocess
 import time
 
 from prepare_candidate import digest, require, write_json
+from topology import NODES, NOMINAL_GLOBAL_BATCH, WORLD_SIZE, local_worker_count
 
-NODES = [
-    ("VM-2-17-tencentos", "172.17.2.17"),
-    ("VM-2-184-tencentos", "172.17.2.184"),
-    ("VM-2-46-tencentos", "172.17.2.46"),
-    ("VM-1-84-tencentos", "172.17.1.84"),
-    ("VM-0-171-tencentos", "172.17.0.171"),
-    ("VM-0-178-tencentos", "172.17.0.178"),
-]
 PYTHON = "/home/zhaoyao/miniconda3/envs/muse-pretrain/bin/python"
 
 
@@ -30,6 +23,7 @@ def check_candidate(root):
     for relative, checksum in prepared["files"].items():
         require(digest(root / relative) == checksum, f"Candidate file changed: {relative}")
     contract = json.loads((root / "contract.json").read_text())
+    require(contract["target_world_size"] == WORLD_SIZE, "Candidate topology is not the reserved-card 47-rank layout")
     require((root / "data").resolve() == Path(contract["repo_root"]) / "data", "Data link changed")
     return contract
 
@@ -76,8 +70,8 @@ def prepare(args):
                          "contract_sha256": digest(root / "contract.json"),
                          "master_addr": NODES[0][1], "master_port": 29688})
     print(f"SESSION: {session}")
-    print(f"48 ranks; 8 x 1 per rank; nominal batch=384; absolute steps {step}->{stop}")
-    print("After coordinating all 48 cards, run on EACH node:")
+    print(f"{WORLD_SIZE} ranks; 8 x 1 per rank; nominal batch={NOMINAL_GLOBAL_BATCH}; absolute steps {step}->{stop}")
+    print("Six nodes; physical card 7 on 171 remains reserved for A-test; run on EACH node:")
     print(f"{PYTHON} -B {root / 'tools/s5_six_node_candidate/launch.py'} start --session {session}")
     return session
 
@@ -117,11 +111,13 @@ def start(args):
             if rank == 0:
                 with socket.socket() as probe:
                     probe.bind((session["master_addr"], session["master_port"]))
+            local_workers = local_worker_count(hostname)
+            devices = ",".join(str(index) for index in range(local_workers))
             env = os.environ.copy()
             env.update({"REPO_ROOT": contract["repo_root"],
                         "PYTHONPATH": str(root / "model_design"), "PYTHONDONTWRITEBYTECODE": "1",
-                        "OMP_NUM_THREADS": "1", "HIP_VISIBLE_DEVICES": "0,1,2,3,4,5,6,7",
-                        "CUDA_VISIBLE_DEVICES": "0,1,2,3,4,5,6,7",
+                        "OMP_NUM_THREADS": "1", "HIP_VISIBLE_DEVICES": devices,
+                        "CUDA_VISIBLE_DEVICES": devices,
                         "PYTORCH_ALLOC_CONF": "expandable_segments:True", "S5_PROCESS_PREFETCH": "1",
                         "S5_NCCL_TIMEOUT_SECONDS": "900", "NCCL_SOCKET_IFNAME": "=eth0",
                         "GLOO_SOCKET_IFNAME": "eth0", "NCCL_IB_GID_INDEX": "3",
@@ -133,7 +129,7 @@ def start(args):
                          "S5_SSH_PASSWORD", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE"):
                 env.pop(name, None)
             command = [PYTHON, "-B", "-u", "-m", "torch.distributed.run", "--nnodes=6",
-                       "--nproc_per_node=8", f"--node_rank={rank}", "--max_restarts=0",
+                       f"--nproc_per_node={local_workers}", f"--node_rank={rank}", "--max_restarts=0",
                        "--rdzv_conf=timeout=900",
                        f"--master_addr={session['master_addr']}", f"--master_port={session['master_port']}",
                        "-m", "muse_encoder.s5.train", "--config", str(root / "config.yaml"),

@@ -1,4 +1,4 @@
-"""Exercise candidate resume with tiny CPU models; no real checkpoint training or GPU work."""
+"""Exercise 47-rank resume with tiny CPU models; no real checkpoint training or GPU work."""
 from __future__ import annotations
 
 import argparse
@@ -13,6 +13,7 @@ os.environ["HIP_VISIBLE_DEVICES"] = ""
 os.environ["ROCR_VISIBLE_DEVICES"] = ""
 
 from prepare_candidate import digest, require
+from topology import WORLD_SIZE
 
 
 def main():
@@ -48,8 +49,7 @@ def main():
         model = torch.nn.Linear(3, 1)
         optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
         scheduler = warmup_stable_scheduler(optimizer, 50)
-        trainer = S5Trainer(model, optimizer, scheduler, run, 1, 20, torch.device("cpu"), rank, bf16=False)
-        return trainer
+        return S5Trainer(model, optimizer, scheduler, run, 1, 20, torch.device("cpu"), rank, bf16=False)
 
     def update(trainer):
         trainer.optimizer.zero_grad()
@@ -57,6 +57,7 @@ def main():
         trainer.optimizer.step()
         trainer.scheduler.step()
 
+    expanded_rank = WORLD_SIZE - 1
     with tempfile.TemporaryDirectory(prefix="s5_resume_cpu_") as temporary:
         temp = Path(temporary)
         source = make(temp / "source", 0)
@@ -71,44 +72,45 @@ def main():
                                               source.state, run_config, {"s5_init": {"parent": "test"}})
         payload = torch.load(source_path, map_location="cpu", weights_only=False)
         source_hash = digest(source_path)
-        contract = {"source_world_size": 15, "target_world_size": 48,
+        contract = {"source_world_size": 15, "target_world_size": WORLD_SIZE,
                     "source_state": payload["state"], "checkpoint_sha256": source_hash,
                     "data_manifest_sha256": "data"}
-        plan = resume_plan(payload, config, contract, "contract", source_hash, 48, 47, 8, 1)
-        expanded = make(temp / "expanded", 47)
+        plan = resume_plan(payload, config, contract, "contract", source_hash, WORLD_SIZE, expanded_rank, 8, 1)
+        expanded = make(temp / "expanded", expanded_rank)
         expanded.resume(source_path, payload=payload, expansion_seed=plan["expansion_seed"])
         equal(source.model.state_dict(), expanded.model.state_dict())
         equal(source.optimizer.state_dict(), expanded.optimizer.state_dict())
         equal(source.scheduler.state_dict(), expanded.scheduler.state_dict())
         equal(source.state, expanded.state)
-        require(len({rank_seed(42, 3, rank) for rank in range(48)}) == 48, "Rank seed collision")
-        print("PASS: rank47 restores exact model, optimizer moments/LR, scheduler and counters without old RNG47")
+        require(len({rank_seed(42, 3, rank) for rank in range(WORLD_SIZE)}) == WORLD_SIZE, "Rank seed collision")
+        print(f"PASS: rank{expanded_rank} restores exact model, optimizer moments/LR, scheduler and counters")
 
-        config48 = {**run_config, "world_size": 48}
-        path48 = expanded.checkpoints.save("next", expanded.model, expanded.optimizer, expanded.scheduler,
-                                          expanded.state, config48,
-                                          {"s5_init": {"parent": "test"}, "expansion_contract_sha256": "contract"})
-        require(not path48.exists() and path48.with_suffix(".rng_rank47.pt").is_file(),
+        config_expanded = {**run_config, "world_size": WORLD_SIZE}
+        expanded_path = expanded.checkpoints.save("next", expanded.model, expanded.optimizer, expanded.scheduler,
+                                                  expanded.state, config_expanded,
+                                                  {"s5_init": {"parent": "test"}, "expansion_contract_sha256": "contract"})
+        require(not expanded_path.exists() and expanded_path.with_suffix(f".rng_rank{expanded_rank}.pt").is_file(),
                 "Nonzero rank must write its RNG sidecar only")
-        rank0_checkpoints = CheckpointManager(path48.parent, rank=0)
+        rank0_checkpoints = CheckpointManager(expanded_path.parent, rank=0)
         rank0_checkpoints.save("next", expanded.model, expanded.optimizer, expanded.scheduler,
-                               expanded.state, config48,
+                               expanded.state, config_expanded,
                                {"s5_init": {"parent": "test"}, "expansion_contract_sha256": "contract"})
-        require(path48.is_file() and path48.with_suffix(".rng_rank0.pt").is_file(),
+        require(expanded_path.is_file() and expanded_path.with_suffix(".rng_rank0.pt").is_file(),
                 "Rank0 must write the shared checkpoint and its RNG sidecar")
-        payload48 = torch.load(path48, map_location="cpu", weights_only=False)
-        plan48 = resume_plan(payload48, config, contract, "contract", digest(path48), 48, 47, 8, 1)
-        require(plan48["expansion_seed"] is None, "Ordinary resume must not reseed")
+        payload_expanded = torch.load(expanded_path, map_location="cpu", weights_only=False)
+        plan_expanded = resume_plan(payload_expanded, config, contract, "contract", digest(expanded_path),
+                                    WORLD_SIZE, expanded_rank, 8, 1)
+        require(plan_expanded["expansion_seed"] is None, "Ordinary resume must not reseed")
         expected_random = torch.rand(20)
-        restored = make(temp / "restored", 47)
-        restored.resume(path48, payload=payload48)
+        restored = make(temp / "restored", expanded_rank)
+        restored.resume(expanded_path, payload=payload_expanded)
         equal(expected_random, torch.rand(20))
         update(expanded)
         update(restored)
         equal(expanded.model.state_dict(), restored.model.state_dict())
         equal(expanded.optimizer.state_dict(), restored.optimizer.state_dict())
         equal(expanded.scheduler.state_dict(), restored.scheduler.state_dict())
-        print("PASS: 48->48 restores RNG; next deterministic optimizer update exactly matches")
+        print("PASS: 47->47 restores RNG; next deterministic optimizer update exactly matches")
 
         cases = [("world", lambda p: p["config"].update(world_size=16)),
                  ("batch", lambda p: p["config"].update(micro_batch=3)),
@@ -120,23 +122,23 @@ def main():
             bad = copy.deepcopy(payload)
             mutate(bad)
             try:
-                resume_plan(bad, config, contract, "contract", source_hash, 48, 47, 8, 1)
+                resume_plan(bad, config, contract, "contract", source_hash, WORLD_SIZE, expanded_rank, 8, 1)
             except ValueError:
                 pass
             else:
                 raise AssertionError(f"Invalid {name} accepted")
         for state_payload, contract_hash, cp_hash in (
                 (payload, "contract", "wrong-checkpoint"),
-                (payload48, "wrong-contract", digest(path48))):
+                (payload_expanded, "wrong-contract", digest(expanded_path))):
             try:
-                resume_plan(state_payload, config, contract, contract_hash, cp_hash, 48, 47, 8, 1)
+                resume_plan(state_payload, config, contract, contract_hash, cp_hash, WORLD_SIZE, expanded_rank, 8, 1)
             except ValueError:
                 pass
             else:
                 raise AssertionError("Mismatched checkpoint/contract accepted")
-        path48.with_suffix(".rng_rank47.pt").unlink()
+        expanded_path.with_suffix(f".rng_rank{expanded_rank}.pt").unlink()
         try:
-            restored.resume(path48, payload=payload48)
+            restored.resume(expanded_path, payload=payload_expanded)
         except FileNotFoundError:
             pass
         else:

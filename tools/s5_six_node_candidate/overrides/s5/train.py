@@ -86,9 +86,11 @@ def main():
         temporary.write_text(config_text, encoding="utf-8")
         os.replace(temporary, resolved_path)
 
+    from .topology import WORLD_SIZE as EXPECTED_WORLD_SIZE
+    from .topology import NOMINAL_GLOBAL_BATCH, local_worker_count
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
-    if world_size != 48:
-        raise ValueError("六机候选要求48个训练进程")
+    if world_size != EXPECTED_WORLD_SIZE:
+        raise ValueError(f"六机候选要求{EXPECTED_WORLD_SIZE}个训练进程，171第7卡专用于A-test")
     distributed = world_size > 1
     local_rank = int(os.environ.get("LOCAL_RANK", str(args.device)))
     device = torch.device(f"cuda:{local_rank}")
@@ -101,10 +103,15 @@ def main():
     rank = dist.get_rank() if distributed else 0
     import platform
     import rdkit
+    import socket
+    local_workers = int(os.environ["LOCAL_WORLD_SIZE"])
+    expected_workers = local_worker_count(socket.gethostname().split(".")[0])
+    if local_workers != expected_workers or torch.cuda.device_count() != expected_workers:
+        raise ValueError(f"卡数/LOCAL_WORLD_SIZE不符合预留拓扑: {local_workers} != {expected_workers}")
     launch_identity = (contract_sha256, args.resume_sha256, str(args.run_dir.resolve()),
                        args.stop_after, micro_batch, accumulation, prefetch,
                        os.environ.get("S5_SESSION_ID"), platform.python_version(),
-                       torch.__version__, torch.version.hip, torch.cuda.device_count(),
+                       torch.__version__, torch.version.hip, EXPECTED_WORLD_SIZE,
                        np.__version__, yaml.__version__, rdkit.__version__,
                        torch.cuda.get_device_name(device))
     launch_identities = [None] * world_size
@@ -177,7 +184,7 @@ def main():
         rank_logger.event("resume_verified", **plan, checkpoint=str(resume_path),
                           checkpoint_sha256=args.resume_sha256)
         print(f"[s5] rank={rank} RESUME VERIFIED step={trainer.state.step} "
-              f"rng={plan['rng_policy']} nominal_global_batch=384", flush=True)
+              f"rng={plan['rng_policy']} nominal_global_batch={NOMINAL_GLOBAL_BATCH}", flush=True)
         if trainer.state.step >= args.stop_after:
             raise ValueError(f"resume step={trainer.state.step} 已达到 stop_after={args.stop_after}")
 

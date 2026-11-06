@@ -1,7 +1,9 @@
-"""Explicit, guarded S5 15->48 expansion; ordinary 48->48 restores RNG sidecars."""
+"""Guarded S5 15->47 expansion; ordinary 47->47 restores RNG sidecars."""
 from __future__ import annotations
 
 import hashlib
+
+from .topology import NOMINAL_GLOBAL_BATCH, WORLD_SIZE
 
 
 def require(condition, message):
@@ -10,15 +12,16 @@ def require(condition, message):
 
 
 def rank_seed(seed, step, rank):
-    value = f"s5-expand-15-to-48:{seed}:{step}:{rank}".encode("ascii")
+    value = f"s5-expand-15-to-47:{seed}:{step}:{rank}".encode("ascii")
     return int.from_bytes(hashlib.sha256(value).digest()[:4], "little")
 
 
 def resume_plan(payload, config, contract, contract_sha256, checkpoint_sha256,
                 world_size, rank, micro_batch, accumulation):
-    require(world_size == 48 and 0 <= rank < world_size, "Candidate requires 48 ranks")
+    require(world_size == WORLD_SIZE and 0 <= rank < world_size,
+            f"Candidate requires {WORLD_SIZE} ranks")
     require((micro_batch, accumulation) == (8, 1), "Candidate batch must be 8 x 1 per rank")
-    require(contract["target_world_size"] == 48 and contract["source_world_size"] == 15,
+    require(contract["target_world_size"] == WORLD_SIZE and contract["source_world_size"] == 15,
             "Unexpected expansion contract")
     old = payload["config"]
     require(old["schema_version"] == "muse_encoder.s5_train.v1", "Not an S5 checkpoint")
@@ -39,15 +42,15 @@ def resume_plan(payload, config, contract, contract_sha256, checkpoint_sha256,
                 "Expansion must use the pinned checkpoint")
         require(state == contract["source_state"], "Pinned training state changed")
         seed = rank_seed(config["seed"], state["step"], rank)
-    elif source == 48:
+    elif source == WORLD_SIZE:
         require(payload["metadata"].get("expansion_contract_sha256") == contract_sha256,
-                "48-rank resume belongs to another expansion")
+                "47-rank resume belongs to another expansion")
         require(state["step"] >= contract["source_state"]["step"], "Resume predates expansion")
         seed = None
     else:
         raise ValueError(f"Unsupported source world size: {source}")
-    return {"source_world_size": source, "target_world_size": 48,
-            "old_nominal_batch": source * 8, "new_nominal_batch": 384,
+    return {"source_world_size": source, "target_world_size": WORLD_SIZE,
+            "old_nominal_batch": source * 8, "new_nominal_batch": NOMINAL_GLOBAL_BATCH,
             "expansion_seed": seed, "step": state["step"],
             "rng_policy": "rank_reseed" if seed is not None else "restore_sidecar",
             "sampling": "existing stateless (seed, stage, micro_step, rank); with replacement",

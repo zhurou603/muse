@@ -28,6 +28,7 @@ def main():
                             "after": digest(path)}
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(path, destination)
+        shutil.copymode(path, destination)
     for path in (root / "model_design").rglob("*.py"):
         override = source / "overrides" / path.relative_to(root / "model_design/muse_encoder")
         if override.exists() and digest(path) != digest(override):

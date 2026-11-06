@@ -1,6 +1,6 @@
 {
   "schema_version": "s5.source_pin.v2",
-  "source_git_commit": "7621db3a7602d3caaa8b73893f93b0eaf3d54b14",
+  "source_git_commit": "4e4c0eefc69a1eddb9467db4009393d6f17b66ca",
   "files": {
     "model_design/configs/s5_continuous.yaml": "93992c8ace7602edeceb1915da537ef080a4b797a1174d9f5b0bc06624f39c06",
     "model_design/muse_encoder/__init__.py": "a776e10cc49ef51246579f5cde53bd6ebce21ef922bfb1d2f306bd590c77d3f2",
@@ -70,6 +70,22 @@
     "model_design/muse_encoder/s5/verify_official_graph_repairs.py": "0bee888e21104a1878a80d8eeb631c13578c68984befd2241ba9e827bc4cc08a",
     "model_design/muse_encoder/s5/watch_evaluation.py": "b42d7d896656a7b78aa904062a28d77e4620a916d0bfe4dce8036e1bdadc4a14",
     "model_design/muse_encoder/structures.py": "b5649aef163a32473cf995fcb2dd5dab2b74117027a1be85f0dac7541037b7f7",
-    "model_design/muse_encoder/tokenizers.py": "2fb19cfe9f9603e52fbfc58b29a726d74267e0d08b32e2cbe70f2261fe1a237c"
+    "model_design/muse_encoder/tokenizers.py": "2fb19cfe9f9603e52fbfc58b29a726d74267e0d08b32e2cbe70f2261fe1a237c",
+    "muse/encoders/__init__.py": "498b99b01f5f0b30405c64d60c2c9064a86581b0702db5d316247d521fb80cef",
+    "muse/encoders/composition.py": "954443405945b2760c599dd6fa5c9e69728c8a80bd492e695e73204f6af4b2c7",
+    "muse/encoders/copolymer.py": "4163ff6b81d437e94c82c84344679d6d3706ff80794f5a7783620456f420f9e0",
+    "muse/encoders/electrolyte.py": "c496a009e8784024da36fa50353c68ae7eba8844d87b60900289367c1bcec9e9",
+    "muse/encoders/esm2_seq.py": "6290cf26f764a699253ad3a18c20131cc304f7077b8db612f4e38afd02994455",
+    "muse/encoders/unimol2_mol.py": "b0eb4c81776d687f30d0895bc4ee524c8a4ef194055e01141cd8e3cd70cb9186",
+    "muse/pretrain/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "muse/pretrain/audit_aux.py": "eb0cfef2b78470b331b85096d3fafc7adb4e6aa43587730acae0ffcd9a01ba9d",
+    "muse/pretrain/build_fingerprints.py": "d46e8a645ed27212a23219cdbbafb769b1cd7b3c08b528640abf2ae04480e58a",
+    "muse/pretrain/compute_descriptors.py": "3c85c09248b922d5faf885309ea5a372c30d0e4374c21e623db44d26ae3d97b8",
+    "muse/pretrain/dedup_molecules.py": "ada9a73d687dd310ca5117b5dfc7785c24291fb8bee84c0b15d76f4382802768",
+    "muse/pretrain/dedup_sequences.py": "63ce71bf0159494301bf6b71486fb6b9ab738eb96e067da34d186b2156deeaa5",
+    "muse/pretrain/deleak.py": "1a5da51c33f7e8040727a41dd40daedee0039544952145408b9cfb2d942de3ce",
+    "muse/pretrain/inventory_official.py": "a9ee585dd09dfd9ba0f9c21d93226f06a73c8646b95448b9e2fe383d2afceb27",
+    "muse/pretrain/repair_descriptor_alignment.py": "1e4386f764850d72d1db725744dfb180d5e36f5d667dbbc104756b5939ae8416",
+    "muse/pretrain/write_manifest.py": "4ec6da01119bc4376b9c64493e0399b4b8ad0df10e1e8b50b94687e5d1e6f96e"
   }
 }

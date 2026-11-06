@@ -64,11 +64,14 @@ class ControlledStopTests(unittest.TestCase):
                 batch = {"token_ids": torch.ones(2, 3, dtype=torch.long)}
                 target = torch.ones(2, 1)
                 yield batch, target
-        model = trainer.model
-        def forward(batch, target):
-            prediction = model(batch["token_ids"].float())
-            return {"total": (prediction - target).square().mean()}
-        trainer.model.forward = forward
+        class LossModel(torch.nn.Module):
+            def __init__(self, linear):
+                super().__init__()
+                self.linear = linear
+            def forward(self, batch, target):
+                prediction = self.linear(batch["token_ids"].float())
+                return {"total": (prediction - target).square().mean()}
+        trainer.model = LossModel(trainer.model)
         trainer.fit(stream, {"schema": "test"})
         self.assertEqual((trainer.state.step, trainer.state.micro_step), (2, 2))
         latest = read_json(self.root / "run/latest.json")

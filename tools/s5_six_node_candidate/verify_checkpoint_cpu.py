@@ -58,7 +58,7 @@ def main():
         trainer = S5Trainer(wrapped, optimizer, scheduler, Path(temporary), 1,
                             contract["source_state"]["step"] + 1, torch.device("cpu"), rank=47)
         trainer.resume(checkpoint, payload=payload, expansion_seed=plan["expansion_seed"])
-        equal(trainer.state, payload["state"])
+        equal(trainer.state.__dict__, payload["state"])
         equal(model.state_dict(), payload["model"])
         equal(optimizer.state_dict(), payload["optimizer"])
         equal(scheduler.state_dict(), payload["scheduler"])

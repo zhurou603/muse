@@ -209,15 +209,34 @@ class Cluster:
                                     capture_output=True, text=True)
             if "s5_six_node_candidate/cluster.py" in result.stdout:
                 raise RuntimeError(f"Another orchestrator is active: {previous['pid']}")
+        if args.acknowledge_stop:
+            pending = self.root / "runs/main/control/stop.json"
+            ack = read_json(self.root / "runs/main/control/stop_ack.json", {})
+            request = read_json(pending, {})
+            require(request.get("request_id") and request["request_id"] == ack.get("request_id"),
+                    "Stop is not acknowledged with a complete 48-rank checkpoint")
+            destination = self.root / "runs/main/control/stop_history" / f"{request['request_id']}.json"
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            pending.rename(destination)
         mode = args.mode
         failures = 0
         process = None
+        pending_skip = None
         for attempt in range(1, args.max_attempts + 1):
             require(not (self.root / "runs/main/control/stop.json").exists(),
                     "A coordinated stop is pending; inspect it before another start")
             session = __import__("launch").prepare(argparse.Namespace(
                 candidate=self.root, mode=mode, stop_after=args.stop_after))
             session_data = read_json(session)
+            if pending_skip is not None:
+                inherited = (self.root / "handoff/data_skips.jsonl").read_bytes()
+                require(pending_skip.startswith(inherited), "Failed-attempt skip log is not an append-only extension")
+                for line in pending_skip[len(inherited):].splitlines():
+                    event = json.loads(line)
+                    require(event["event"] == "training_input_skipped" and int(event["row"]) >= 0,
+                            "Invalid failed-attempt skip record")
+                (self.root / "runs/main/data_skips.jsonl").write_bytes(pending_skip)
+                pending_skip = None
             atomic_json(state_path, {"state": "running", "pid": os.getpid(), "session": str(session),
                                      "attempt": attempt, "mode": mode,
                                      "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")})
@@ -271,6 +290,15 @@ class Cluster:
                 return 2
             failures += 1
             mode = "train-resume"
+            if not (self.root / "runs/main/latest.json").exists():
+                failed_run = self.root / "runs/main"
+                pending_skip = (failed_run / "data_skips.jsonl").read_bytes()
+                archive = self.root / "runs/history" / f"main_no_checkpoint_{time.time_ns()}"
+                archive.parent.mkdir(parents=True, exist_ok=True)
+                failed_run.rename(archive)
+                mode = "train-start"
+                print(f"No complete new checkpoint; failed run preserved at {archive}; "
+                      "retrying the SAME pinned source checkpoint", flush=True)
             delay = min(300, failures * 30)
             print(f"Attempt failed; bounded resume {failures}/{args.max_attempts - 1} after {delay}s",
                   flush=True)
@@ -318,6 +346,7 @@ def main():
             command.add_argument("--mode", choices=("smoke-start", "smoke-resume", "train-start", "train-resume"), required=True)
             command.add_argument("--stop-after", type=int)
             command.add_argument("--max-attempts", type=int, default=20)
+            command.add_argument("--acknowledge-stop", action="store_true")
         if name == "stop":
             command.add_argument("--grace-seconds", type=int, default=900)
             command.add_argument("--reason", default="operator requested coordinated stop")

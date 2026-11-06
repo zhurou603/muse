@@ -1,6 +1,6 @@
 {
   "schema_version": "s5.source_pin.v2",
-  "source_git_commit": "499e65f29ac377ab106b918f76bf51d03d4946ec",
+  "source_git_commit": "cf7633f35b3bfb510a142f7faa81d958f2a87cd2",
   "files": {
     "model_design/configs/s5_continuous.yaml": "93992c8ace7602edeceb1915da537ef080a4b797a1174d9f5b0bc06624f39c06",
     "model_design/muse_encoder/__init__.py": "a776e10cc49ef51246579f5cde53bd6ebce21ef922bfb1d2f306bd590c77d3f2",

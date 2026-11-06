@@ -1,4 +1,4 @@
-"""Restore the actual pinned S5 model/optimizer on CPU, including expanded rank 47."""
+"""Restore the actual pinned S5 model/optimizer on CPU, including expanded rank 46."""
 import argparse
 import json
 import os
@@ -10,7 +10,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = ""
 os.environ["HIP_VISIBLE_DEVICES"] = ""
 os.environ["ROCR_VISIBLE_DEVICES"] = ""
 
-from launch import check_candidate
+from launch import WORLD_SIZE, check_candidate
 from prepare_candidate import digest
 
 
@@ -47,7 +47,7 @@ def main():
     payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
     config = payload["config"]["config"]
     plan = resume_plan(payload, config, contract, digest(root / "contract.json"),
-                       contract["checkpoint_sha256"], 48, 47, 8, 1)
+                       contract["checkpoint_sha256"], WORLD_SIZE, WORLD_SIZE - 1, 8, 1)
     model = MuseEncoder(MuseConfig(**payload["config"]["model"]))
     wrapped = S5Wrapper(model, {})
     optimizer = build_optimizer(wrapped, payload["metadata"]["s5_init"],
@@ -56,7 +56,7 @@ def main():
     scheduler = warmup_stable_scheduler(optimizer, config["training"]["warmup_steps"])
     with tempfile.TemporaryDirectory(prefix="s5_actual_cpu_resume_") as temporary:
         trainer = S5Trainer(wrapped, optimizer, scheduler, Path(temporary), 1,
-                            contract["source_state"]["step"] + 1, torch.device("cpu"), rank=47)
+                            contract["source_state"]["step"] + 1, torch.device("cpu"), rank=WORLD_SIZE - 1)
         trainer.resume(checkpoint, payload=payload, expansion_seed=plan["expansion_seed"])
         equal(trainer.state.__dict__, payload["state"])
         equal(model.state_dict(), payload["model"])
@@ -66,7 +66,7 @@ def main():
         assert finite
         report = {"status": "pass", "checkpoint": str(checkpoint),
                   "checkpoint_sha256": digest(checkpoint), "source_state": payload["state"],
-                  "rank": 47, "rng_policy": plan["rng_policy"], "model_exact": True,
+                  "rank": WORLD_SIZE - 1, "rng_policy": plan["rng_policy"], "model_exact": True,
                   "optimizer_exact": True, "scheduler_exact": True, "finite_parameters": finite,
                   "optimizer_param_groups": [{key: group[key] for key in ("lr", "weight_decay", "group_name")}
                                              for group in optimizer.param_groups],

@@ -15,6 +15,9 @@ def main():
     require(not (root / "runs").exists(), "Training/smoke exists: prepare a new candidate instead")
     require(not (root / "control/drivers").exists(), "A node has launched: prepare a new candidate")
     source = Path(__file__).resolve().parent
+    from topology import WORLD_SIZE
+    contract = __import__("json").loads((root / "contract.json").read_text())
+    require(contract["target_world_size"] == WORLD_SIZE, "Refusing to mix 48-rank and 47-rank candidates")
     target = root / "tools/s5_six_node_candidate"
     prepared_path = root / "prepared.json"
     prepared = __import__("json").loads(prepared_path.read_text())

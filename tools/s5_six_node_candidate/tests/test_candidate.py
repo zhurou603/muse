@@ -14,6 +14,7 @@ import torch
 TOOLS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TOOLS))
 from cluster import Cluster, read_json
+from topology import WORLD_SIZE, local_worker_count, rank_location
 from muse_encoder.s5.health import RankEventLogger, collect_health
 from muse_encoder.s5.runtime import S5Trainer
 from muse_encoder.pretrain.trainer import TrainState
@@ -118,6 +119,18 @@ class HealthSessionTests(unittest.TestCase):
             summary = collect_health(root, 2, now=1002, target_step=22, expected_session="s")
             self.assertTrue(summary["completed"])
             self.assertEqual(summary["status"], "completed")
+
+
+class TopologyTests(unittest.TestCase):
+    def test_reserved_card_and_non_octal_global_rank_mapping(self):
+        self.assertEqual(WORLD_SIZE, 47)
+        self.assertEqual(local_worker_count("VM-0-171-tencentos"), 7)
+        self.assertEqual(rank_location(32), ("VM-0-171-tencentos", 0))
+        self.assertEqual(rank_location(38), ("VM-0-171-tencentos", 6))
+        self.assertEqual(rank_location(39), ("VM-0-178-tencentos", 0))
+        self.assertEqual(rank_location(46), ("VM-0-178-tencentos", 7))
+        with self.assertRaises(ValueError):
+            rank_location(47)
 
 
 class OrchestratorTests(unittest.TestCase):

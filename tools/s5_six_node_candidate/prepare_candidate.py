@@ -77,28 +77,29 @@ def main():
     config = yaml.safe_load(os.path.expandvars(cfg_path.read_text(encoding="utf-8")))
     require(payload["config"]["config"] == config, "Current YAML differs from checkpoint configuration")
     contract = {
-        "schema_version": "s5.expansion.15to48.v1", "repo_root": str(repo),
+        "schema_version": "s5.expansion.15to47.v1", "repo_root": str(repo),
         "source_git_commit": source_commit,
         "source_git_tree": subprocess.check_output(
             ["git", "-C", str(repo), "rev-parse", "HEAD^{tree}"], text=True).strip(),
         "source_run": str(args.source_run.resolve()), "source_checkpoint": str(cp),
-        "checkpoint_sha256": cp_hash, "source_world_size": 15, "target_world_size": 48,
+        "checkpoint_sha256": cp_hash, "source_world_size": 15, "target_world_size": 47,
         "source_state": payload["state"], "micro_batch": 8, "accumulation_steps": 1,
-        "prefetch_per_rank": 1, "nominal_global_batch": 384,
+        "prefetch_per_rank": 1, "nominal_global_batch": 376,
         "data_manifest_sha256": digest(config["data"]["data_manifest"]),
         "learning_rate_policy": "restore optimizer and scheduler; no LR scaling or warmup restart",
         "sampling_policy": "retain stateless rank/micro-step seeds; no exact old trajectory guarantee",
-        "rng_policy": "reseed ALL ranks on 15->48 only; strictly restore sidecars on 48->48",
+        "rng_policy": "reseed ALL ranks on 15->47 only; strictly restore sidecars on 47->47",
         "samples_counter": "retain rank0-local historical expanded rows, not global coverage",
+        "reserved_devices": {"VM-0-171-tencentos": [7], "purpose": "independent A-test"},
     }
-    sys.path.insert(0, str(ROOT / "overrides/s5"))
-    from expansion import resume_plan
-    resume_plan(payload, config, contract, "preparation", cp_hash, 48, 0, 8, 1)
+    sys.path.insert(0, str(ROOT / "overrides"))
+    from s5.expansion import resume_plan
+    resume_plan(payload, config, contract, "preparation", cp_hash, 47, 0, 8, 1)
     require(payload["config"]["world_size"] == 15, "Initial preparation requires a 15-rank checkpoint")
     if pointer is not None:
         require(pointer["step"] == payload["state"]["step"] and
                 pointer["micro_step"] == payload["state"]["micro_step"], "Pointer state mismatch")
-    print(json.dumps({"state": payload["state"], "old_batch": 120, "new_batch": 384,
+    print(json.dumps({"state": payload["state"], "old_batch": 120, "new_batch": 376,
                       "optimizer_groups": [{k: g[k] for k in ("lr", "weight_decay", "group_name")}
                                            for g in payload["optimizer"]["param_groups"]]}, indent=2), flush=True)
     del payload

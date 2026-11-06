@@ -13,7 +13,8 @@ import sys
 import time
 import uuid
 
-from launch import NODES, PYTHON, check_candidate
+from launch import NODES, PYTHON, WORLD_SIZE, check_candidate
+from topology import local_worker_count
 from prepare_candidate import require
 
 
@@ -68,8 +69,12 @@ class Cluster:
             if result.returncode:
                 return {"host": host, "ok": False, "error": result.stderr[-2000:]}
             value = json.loads(result.stdout)
+            workers = local_worker_count(host)
+            value["reserved_devices"] = list(range(workers, 8))
+            value["training_device_count"] = workers
             value["ok"] = (len(value["devices"]) == 8 and not value["s5_training_processes"] and
-                           all(row["free_mib"] >= args.require_free_mib for row in value["devices"]))
+                           all(row["free_mib"] >= args.require_free_mib
+                               for row in value["devices"][:workers]))
             return value
         with ThreadPoolExecutor(max_workers=6) as executor:
             rows = list(executor.map(one, NODES))
@@ -170,7 +175,7 @@ class Cluster:
     def start_health(self, session):
         session_data = read_json(session)
         command = [PYTHON, "-B", "-m", "muse_encoder.s5.health",
-                   "--run-dir", session_data["run_dir"], "--world-size", "48",
+                   "--run-dir", session_data["run_dir"], "--world-size", str(WORLD_SIZE),
                    "--target-step", str(session_data["stop_after"]), "--session", session.stem,
                    "--poll-seconds", "15", "--stale-after", "60", "--no-progress-after", "900",
                    "--startup-grace", "1800", "--checkpoint-grace", "3600", "--gpu", "--dump-stacks"]
@@ -201,6 +206,10 @@ class Cluster:
     def run(self, args):
         require(args.mode == "train-resume" or not (self.root / "runs/main").exists(),
                 "main already exists: explicit train-resume is required")
+        if args.mode == "smoke-start":
+            communication = read_json(self.root / "communication_acceptance.json", {})
+            require(communication.get("ok") and all(row.get("rank_pass_count") == 8
+                    for row in communication.get("nodes", [])), "48-rank collective acceptance is required")
         control = self.root / "control"
         state_path = control / "cluster_state.json"
         previous = read_json(state_path, {})
@@ -214,7 +223,7 @@ class Cluster:
             ack = read_json(self.root / "runs/main/control/stop_ack.json", {})
             request = read_json(pending, {})
             require(request.get("request_id") and request["request_id"] == ack.get("request_id"),
-                    "Stop is not acknowledged with a complete 48-rank checkpoint")
+                    f"Stop is not acknowledged with a complete {WORLD_SIZE}-rank checkpoint")
             destination = self.root / "runs/main/control/stop_history" / f"{request['request_id']}.json"
             destination.parent.mkdir(parents=True, exist_ok=True)
             pending.rename(destination)
@@ -323,7 +332,7 @@ class Cluster:
                 latest = read_json(run_dir / "latest.json", {})
                 checkpoint = Path(latest["path"])
                 rng_count = len(list(checkpoint.parent.glob(checkpoint.stem + ".rng_rank*.pt")))
-                require(rng_count == 48, f"Stopped without 48 RNG files: {rng_count}")
+                require(rng_count == WORLD_SIZE, f"Stopped without {WORLD_SIZE} RNG files: {rng_count}")
                 atomic_json(run_dir / "control/stop_ack.json", {**request, "latest": latest,
                                                                "rng_sidecars": rng_count})
                 print(json.dumps({"stopped": True, "latest": latest, "rng_sidecars": rng_count}, indent=2))

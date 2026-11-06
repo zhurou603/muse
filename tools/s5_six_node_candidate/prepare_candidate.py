@@ -50,10 +50,15 @@ def main():
     import subprocess
     pin = json.loads((ROOT / "source_hashes.json").read_text())
     require(pin.get("schema_version") == "s5.source_pin.v2", "Run pin_source.py on a reviewed commit")
-    source_commit = subprocess.check_output(
+    actual_commit = subprocess.check_output(
         ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
-    require(source_commit == pin["source_git_commit"], "Production Git commit differs from reviewed pin")
-    subprocess.run(["git", "-C", str(repo), "diff", "--quiet", "HEAD", "--",
+    source_commit = pin["source_git_commit"]
+    ancestry = subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor",
+                               source_commit, actual_commit])
+    require(ancestry.returncode == 0, "Reviewed source commit is not an ancestor of production")
+    subprocess.run(["git", "-C", str(repo), "diff", "--quiet", source_commit, actual_commit, "--",
+                    "model_design/muse_encoder", "model_design/configs/s5_continuous.yaml"], check=True)
+    subprocess.run(["git", "-C", str(repo), "diff", "--quiet", actual_commit, "--",
                     "model_design/muse_encoder", "model_design/configs/s5_continuous.yaml"], check=True)
     expected = pin["files"]
     for relative, checksum in expected.items():

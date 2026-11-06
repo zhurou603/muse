@@ -1,7 +1,8 @@
 """四域记录级特征化；每条记录独立处理且从不静默截断。
 
-RDKit 是默认必需依赖。``strict=False`` 只保留明确标记的开发降级路径。
-序列记录走真正的 SMILES/PSMILES/残基 token，原子记录走 RDKit/PBC 图。
+RDKit 是默认必需依赖，strict=True 保持严格图和坐标校验。显式登记的
+非严格拓扑、原始 token 和 unknown sentinel 均记录 degraded；不伪造线性
+分子，也不复用未匹配的坐标。序列记录走 token，原子记录走 RDKit/PBC 图。
 """
 from __future__ import annotations
 
@@ -24,9 +25,15 @@ from .config import (
 from .tokenizers import default_tokenizers
 from .structures import (
     PBC_BASIS_CENTERS,
+    MissingChemicalInput,
     align_coordinates,
+    alignment_error,
+    alignment_mode,
     build_pbc_graph,
     graph_from_smiles,
+    is_missing_chemical_input,
+    mol_degraded,
+    mol_mode,
 )
 
 try:
@@ -186,11 +193,18 @@ def _bond_and_spd(mol):
     return bond, spd
 
 
-def _rdkit_graph(smiles: str):
-    mol = graph_from_smiles(smiles)
+def _rdkit_graph(smiles: str, allow_unsanitized: bool = False):
+    mol = graph_from_smiles(smiles, allow_unsanitized=allow_unsanitized)
     elements = [atom.GetAtomicNum() for atom in mol.GetAtoms()]
     bond, spd = _bond_and_spd(mol)
     return mol, elements, bond, spd, _rdkit_atom_features(mol)
+
+
+def _unknown_molecule_graph():
+    elements = [DUMMY_ELEMENT]
+    bond = np.zeros((2, 2), dtype=np.int64)
+    spd = np.zeros((2, 2), dtype=np.int64)
+    return None, elements, bond, spd, _default_atom_features(elements, [0])
 
 
 def _graph_spd(adjacency: np.ndarray) -> np.ndarray:
@@ -452,37 +466,46 @@ class RecordFeaturizer:
         return self.strict if strict is None else bool(strict)
 
     def _chemical_graph(self, smiles: str, strict: bool):
-        tokens = self.tk["smiles"].tokenize(smiles)
         if not _HAS_RDKIT:
             if strict:
                 raise ImportError("RDKit 是正式默认必需依赖；strict=True 禁止 fallback")
+            tokens = self.tk["smiles"].tokenize(smiles)
             elements, bond, spd, features = _smiles_fallback_graph(tokens)
             return None, elements, bond, spd, features, True
+        if is_missing_chemical_input(smiles):
+            return (*_unknown_molecule_graph(), True)
         try:
-            mol, elements, bond, spd, features = _rdkit_graph(smiles)
-            return mol, elements, bond, spd, features, False
-        except Exception:
+            mol, elements, bond, spd, features = _rdkit_graph(
+                smiles, allow_unsanitized=not strict)
+            return mol, elements, bond, spd, features, mol_degraded(mol)
+        except (MissingChemicalInput, ValueError, RuntimeError):
             if strict:
                 raise
-            elements, bond, spd, features = _smiles_fallback_graph(tokens)
-            return None, elements, bond, spd, features, True
+            return (*_unknown_molecule_graph(), True)
 
     def _validate_sequence_smiles(self, smiles: str, strict: bool):
         if not _HAS_RDKIT:
             if strict:
                 raise ImportError("RDKit 是正式默认必需依赖；strict=True 禁止 fallback")
             return True
+        if is_missing_chemical_input(smiles):
+            return True
         try:
-            graph_from_smiles(smiles)
-            return False
-        except Exception:
+            mol = graph_from_smiles(smiles, allow_unsanitized=not strict)
+            return mol_degraded(mol)
+        except (MissingChemicalInput, ValueError, RuntimeError):
             if strict:
                 raise
             return True
 
     def _chemical_sequence(self, text: str, domain: int, kind: int, tokenizer_name: str, strict):
         degraded = self._validate_sequence_smiles(text, strict)
-        ids = self.tk[tokenizer_name].encode(text, add_cls=True)
+        missing = is_missing_chemical_input(text)
+        if missing:
+            tokenizer = self.tk[tokenizer_name]
+            ids = [tokenizer.cls_id, tokenizer.unk_id]
+        else:
+            ids = self.tk[tokenizer_name].encode(text, add_cls=True)
         # 保留完整化学 token 序列。训练数据集通过 S5 TrainingRecordFeaturizer
         # 做确定性 token 裁剪；推理由 inference._can_window/_encode_long_record
         # 做相邻分窗与长度加权池化，尾部 token 不再静默丢失。
@@ -498,6 +521,7 @@ class RecordFeaturizer:
                 "sample_type": "molecule" if domain == DOMAIN_SMALL_MOLECULE else "polymer",
                 "sequence_frontend": True,
                 "degraded": degraded,
+                "missing_input": missing,
                 "truncated": truncated,
                 "output_token_indices": np.arange(1, length, dtype=np.int64),
                 "expected_token_count": length - 1,
@@ -612,6 +636,7 @@ class RecordFeaturizer:
         sequence: bool = False,
         strict: Optional[bool] = None,
         sdf_mol=None,
+        allow_1d_fallback: bool = False,
     ) -> FeaturizedRecord:
         strict = self._strict(strict)
         if sequence:
@@ -624,14 +649,23 @@ class RecordFeaturizer:
             return record
 
         mol, elements, bond, spd, features, degraded = self._chemical_graph(smiles, strict)
+        align_mode = align_error = None
         if sdf_mol is not None:
             if coords is not None:
                 raise ValueError("coords 与 sdf_mol 只能提供一个")
-            if degraded:
-                raise ValueError("开发 fallback 图不能用于严格 SDF 原子对齐")
-            _, coords, mapping = align_coordinates(smiles, sdf_mol)
+            if mol is None:
+                raise ValueError("未知输入图不能用于 SDF 原子对齐")
+            mol, coords, mapping = align_coordinates(
+                smiles, sdf_mol, allow_1d_fallback=allow_1d_fallback)
+            elements = [atom.GetAtomicNum() for atom in mol.GetAtoms()]
+            bond, spd = _bond_and_spd(mol)
+            features = _rdkit_atom_features(mol)
+            align_mode, align_error = alignment_mode(mol), alignment_error(mol)
+            degraded = degraded or mol_degraded(mol) or coords is None
         else:
             mapping = None
+        if mol is None and coords is not None:
+            raise ValueError("未知输入图不能使用逐原子坐标")
         n = len(elements)
         centered = _centered_coords(coords, n) if coords is not None else None
         c, cm = _coords_with_cls(centered, n)
@@ -652,6 +686,10 @@ class RecordFeaturizer:
                 "sample_type": "molecule",
                 "smiles": smiles,
                 "degraded": degraded,
+                "missing_input": is_missing_chemical_input(smiles),
+                "parse_mode": mol_mode(mol, "unknown_sentinel"),
+                "alignment_mode": align_mode,
+                "alignment_error": align_error,
                 "sdf_mapping": mapping,
                 "bond_pairs": (np.asarray([(bond.GetBeginAtomIdx(), bond.GetEndAtomIdx())
                                            for bond in mol.GetBonds()], dtype=np.int64)
@@ -892,6 +930,10 @@ class RecordFeaturizer:
                 "ligand_length": len(ligand.token_ids) - 1,
                 "degraded": ligand.meta.get("degraded", False),
                 "ligand_sequence_frontend": ligand_sequence,
+                "missing_input": ligand.meta.get("missing_input", False),
+                "parse_mode": ligand.meta.get("parse_mode"),
+                "alignment_mode": ligand.meta.get("alignment_mode"),
+                "alignment_error": ligand.meta.get("alignment_error"),
             },
         )
         result.meta["expected_token_count"] = result.n_real_tokens

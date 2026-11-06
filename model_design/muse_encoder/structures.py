@@ -25,15 +25,129 @@ def require_rdkit():
     return Chem
 
 
-def graph_from_smiles(smiles: str):
-    """Return the heavy-atom graph in the official Uni-Mol atom order."""
+class MissingChemicalInput(ValueError):
+    """The input is an explicit missing sentinel, not a molecule."""
+
+
+_PARSE_MODE = "_muse_parse_mode"
+_DEGRADED = "_muse_degraded"
+_ALIGNMENT_MODE = "_muse_alignment_mode"
+_TOTAL_HS = "_muse_total_hs"
+_MISSING_TOKENS = {"", "nan", "na", "n/a", "none", "null", "."}
+
+
+def is_missing_chemical_input(value) -> bool:
+    return not isinstance(value, str) or value.strip().casefold() in _MISSING_TOKENS
+
+
+def _set_mol_mode(mol, mode: str, degraded: bool = False):
+    mol.SetProp(_PARSE_MODE, mode)
+    mol.SetBoolProp(_DEGRADED, bool(degraded))
+    return mol
+
+
+def mol_degraded(mol) -> bool:
+    return bool(mol is not None and mol.HasProp(_DEGRADED) and mol.GetBoolProp(_DEGRADED))
+
+
+def mol_mode(mol, default="strict") -> str:
+    return mol.GetProp(_PARSE_MODE) if mol is not None and mol.HasProp(_PARSE_MODE) else default
+
+
+def alignment_mode(mol) -> str | None:
+    return mol.GetProp(_ALIGNMENT_MODE) if mol is not None and mol.HasProp(_ALIGNMENT_MODE) else None
+
+
+def alignment_error(mol) -> str | None:
+    return mol.GetProp("_muse_alignment_error") \
+        if mol is not None and mol.HasProp("_muse_alignment_error") else None
+
+
+def _strip_ligand_annotation(smiles: str):
+    """Separate only explicit PDB ligand annotations, never arbitrary SMILES text."""
+    annotations = []
+    chemical = smiles.strip()
+    if "\t" in chemical:
+        chemical, suffix = chemical.split("\t", 1)
+        if suffix.isascii() and suffix.replace("_", "").isalnum() and suffix.endswith("_LIGAND"):
+            annotations.append(suffix)
+        else:
+            chemical = smiles.strip()
+    experimental = "_experimental"
+    if chemical.endswith(experimental):
+        candidate = chemical[:-len(experimental)]
+        if candidate:
+            chemical = candidate
+            annotations.append(experimental.lstrip("_"))
+    return chemical, annotations
+
+
+def _heavy_with_hydrogen_metadata(chem, mol, sanitize: bool):
+    """Remove H atoms while retaining their original per-heavy-atom counts."""
+    mol.UpdatePropertyCache(strict=bool(sanitize))
+    counts = [atom.GetTotalNumHs(includeNeighbors=True)
+              for atom in mol.GetAtoms() if atom.GetAtomicNum() != 1]
+    heavy = chem.RemoveAllHs(mol, sanitize=bool(sanitize))
+    if heavy.GetNumAtoms() != len(counts):
+        raise ValueError("重原子去氢后数量发生变化")
+    for atom, count in zip(heavy.GetAtoms(), counts):
+        atom.SetIntProp(_TOTAL_HS, int(count))
+    return heavy
+
+
+def _hydrogen_count(atom) -> int:
+    return int(atom.GetIntProp(_TOTAL_HS)) if atom.HasProp(_TOTAL_HS) else int(atom.GetTotalNumHs())
+
+
+def graph_from_smiles(smiles: str, allow_unsanitized: bool = False):
+    """Return a heavy graph without inventing atoms, bonds or connectivity.
+
+    Strict sanitization remains the first path. Only an explicit caller may allow
+    ``sanitize=False`` parsing, which is marked ``unsanitized_topology``. Missing
+    sentinels and syntax that RDKit cannot tokenize still fail closed.
+    """
     chem = require_rdkit()
-    if not isinstance(smiles, str) or not smiles:
-        raise ValueError("SMILES 必须是非空字符串")
-    mol = chem.MolFromSmiles(smiles)
+    if is_missing_chemical_input(smiles):
+        raise MissingChemicalInput("化学输入缺失或显式为空")
+    chemical, annotations = _strip_ligand_annotation(smiles)
+    if is_missing_chemical_input(chemical):
+        raise MissingChemicalInput("化学输入缺失或显式为空")
+    mol = chem.MolFromSmiles(chemical)
+    if mol is not None:
+        heavy = _heavy_with_hydrogen_metadata(chem, chem.AddHs(mol, addCoords=True), True)
+        _set_mol_mode(heavy, "strict", False)
+    else:
+        if not allow_unsanitized:
+            raise ValueError(f"RDKit 无法解析: {chemical[:80]}")
+        mol = chem.MolFromSmiles(chemical, sanitize=False)
+        if mol is None:
+            raise ValueError(f"RDKit 无法解析: {chemical[:80]}")
+        heavy = _heavy_with_hydrogen_metadata(chem, mol, False)
+        _set_mol_mode(heavy, "unsanitized_topology", True)
+    if heavy.GetNumAtoms() < 1:
+        raise ValueError("化学图没有重原子")
+    for index, annotation in enumerate(annotations):
+        heavy.SetProp(f"_muse_annotation_{index}", annotation)
+    return heavy
+
+
+def mol_from_sdf_bytes(block: bytes, record_id: str, allow_unsanitized: bool = True):
+    """Parse one official SDF block, retaining coordinates and parse provenance."""
+    import io
+
+    chem = require_rdkit()
+    supplier = chem.ForwardSDMolSupplier(io.BytesIO(block), removeHs=False, sanitize=True)
+    mol = next(supplier, None)
+    if mol is not None:
+        return _set_mol_mode(mol, "strict", False)
+    if not allow_unsanitized:
+        raise ValueError(f"SDF 严格解析失败: {record_id}")
+    supplier = chem.ForwardSDMolSupplier(io.BytesIO(block), removeHs=False, sanitize=False)
+    mol = next(supplier, None)
     if mol is None:
-        raise ValueError(f"RDKit 无法解析: {smiles[:80]}")
-    return chem.RemoveAllHs(chem.AddHs(mol, addCoords=True))
+        raise ValueError(f"SDF 严格解析失败，非严格解析也失败: {record_id}")
+    mol.UpdatePropertyCache(strict=False)
+    return _set_mol_mode(mol, "unsanitized_topology", True)
 
 
 def atom_signature(atom):
@@ -79,13 +193,13 @@ def _aromatic_representation_mapping(chem, source, target):
                 target_atom.GetAtomicNum(),
                 target_atom.GetIsotope(),
                 target_atom.GetFormalCharge(),
-                target_atom.GetTotalNumHs(),
+                _hydrogen_count(target_atom),
             )
             source_signature = (
                 source_atom.GetAtomicNum(),
                 source_atom.GetIsotope(),
                 source_atom.GetFormalCharge(),
-                source_atom.GetTotalNumHs(),
+                _hydrogen_count(source_atom),
             )
             if stable_signature != source_signature:
                 valid = False
@@ -146,7 +260,7 @@ def _aromatic_representation_mapping(chem, source, target):
         if not valid:
             continue
 
-        original_h_counts = [atom.GetTotalNumHs() for atom in source.GetAtoms()]
+        original_h_counts = [_hydrogen_count(atom) for atom in source.GetAtoms()]
         normalized = chem.RWMol(source)
         for atom, h_count in zip(normalized.GetAtoms(), original_h_counts):
             atom.SetNumExplicitHs(h_count)
@@ -206,77 +320,190 @@ def _aromatic_representation_mapping(chem, source, target):
     return None
 
 
-def align_coordinates(smiles: str, sdf_mol):
-    """Align original SDF coordinates to the official SMILES atom order.
+def _topology_mapping(chem, source, target, max_candidates=10000):
+    """Map target->source using connectivity and conserved atom attributes.
 
-    The returned mapping maps every target/SMILES atom index to its source/SDF
-    atom index. No coordinates are generated, reordered in place, or optimized.
-    Aromatic/Kekulé differences require full sanitization and exact atom, bond,
-    radical, hydrogen and stereo checks on the same mapping.
+    Bond order is intentionally compared only by connectivity here: this path is
+    for aromatic/Kekulé and SDF bond-perception differences.  Atomic number,
+    isotope, formal charge, original hydrogen count and radical count must match
+    at every mapped atom.  Specified stereo conflicts are rejected below.
+    """
+    n = target.GetNumAtoms()
+    if source.GetNumAtoms() != n or source.GetNumBonds() != target.GetNumBonds():
+        return None
+
+    def signature(atom):
+        return (
+            atom.GetAtomicNum(), atom.GetIsotope(), atom.GetFormalCharge(),
+            _hydrogen_count(atom), atom.GetNumRadicalElectrons(),
+        )
+
+    candidates = {
+        index: [j for j in range(n)
+                if signature(target.GetAtomWithIdx(index)) == signature(source.GetAtomWithIdx(j))]
+        for index in range(n)
+    }
+    if any(not values for values in candidates.values()):
+        return None
+    order = sorted(range(n), key=lambda index: (
+        len(candidates[index]), -target.GetAtomWithIdx(index).GetDegree(), index))
+    mapping = [-1] * n
+    used = set()
+    complete = 0
+
+    def stereo_compatible(candidate):
+        try:
+            if source.GetNumConformers() == 1:
+                chem.AssignStereochemistryFrom3D(source)
+            chem.AssignStereochemistry(target, cleanIt=True, force=True)
+        except (ValueError, RuntimeError):
+            pass
+        for i, j in enumerate(candidate):
+            target_atom = target.GetAtomWithIdx(i)
+            if not target_atom.HasProp("_CIPCode"):
+                continue
+            source_atom = source.GetAtomWithIdx(j)
+            if not source_atom.HasProp("_CIPCode") \
+                    or source_atom.GetProp("_CIPCode") != target_atom.GetProp("_CIPCode"):
+                return False
+        for bond in target.GetBonds():
+            if bond.GetStereo() == chem.BondStereo.STEREONONE:
+                continue
+            other = source.GetBondBetweenAtoms(
+                candidate[bond.GetBeginAtomIdx()], candidate[bond.GetEndAtomIdx()])
+            if other is None or other.GetStereo() != bond.GetStereo():
+                return False
+        return True
+
+    def search(depth):
+        nonlocal complete
+        if depth == n:
+            complete += 1
+            return tuple(mapping) if stereo_compatible(mapping) else None
+        if complete >= max_candidates:
+            return None
+        index = order[depth]
+        for source_index in candidates[index]:
+            if source_index in used:
+                continue
+            valid = True
+            for bond in target.GetAtomWithIdx(index).GetBonds():
+                other_index = bond.GetOtherAtomIdx(index)
+                if mapping[other_index] >= 0 and source.GetBondBetweenAtoms(
+                        source_index, mapping[other_index]) is None:
+                    valid = False
+                    break
+            if not valid:
+                continue
+            mapping[index] = source_index
+            used.add(source_index)
+            result = search(depth + 1)
+            if result is not None:
+                return result
+            used.remove(source_index)
+            mapping[index] = -1
+        return None
+
+    return search(0)
+
+
+def _alignment_fallback(target, message, allow_1d_fallback):
+    if not allow_1d_fallback:
+        raise ValueError(message)
+    target.SetProp(_ALIGNMENT_MODE, "smiles_1d_unmatched")
+    target.SetProp("_muse_alignment_error", str(message)[:500])
+    _set_mol_mode(target, mol_mode(target), True)
+    return target, None, None
+
+
+def align_coordinates(smiles: str, sdf_mol, allow_1d_fallback: bool = False):
+    """Align official coordinates only after proving atom-level graph identity.
+
+    Exact RDKit matching is tried first.  A bounded topology matcher additionally
+    handles unsanitized SDF and aromatic/Kekulé differences while conserving the
+    original per-atom hydrogen counts.  If identity cannot be proved, the default
+    strict path raises.  A-test inference may explicitly request a marked 1D
+    fallback; it never receives reordered, generated or mismatched coordinates.
     """
     chem = require_rdkit()
     if sdf_mol is None:
         raise ValueError("SDF 解析失败")
     target = graph_from_smiles(smiles)
-    source = chem.RemoveAllHs(sdf_mol)
-    if source.GetNumConformers() != 1:
-        raise ValueError("需要恰好一个SDF构象")
-    n = target.GetNumAtoms()
-    if (source.GetNumAtoms(), source.GetNumBonds()) != (
-        n, target.GetNumBonds()
-    ):
-        raise ValueError("SMILES/SDF原子数或键数不一致")
-
-    source_graph, target_graph = chem.Mol(source), chem.Mol(target)
-    chem.RemoveStereochemistry(source_graph)
-    chem.RemoveStereochemistry(target_graph)
-    same_graph = chem.MolToSmiles(
-        source_graph, isomericSmiles=True
-    ) == chem.MolToSmiles(target_graph, isomericSmiles=True)
-    if not same_graph:
-        mapping = _aromatic_representation_mapping(chem, source, target)
-        if mapping is None:
-            raise ValueError("SMILES/SDF非立体化学结构不一致（连接、键、电荷或同位素等）")
-    else:
-        candidates = source.GetSubstructMatches(
-            target, useChirality=True, uniquify=False, maxMatches=10001
-        )
-        if len(candidates) >= 10001:
-            raise RuntimeError("原子映射候选超过10000，停止，不能确认完整搜索")
+    try:
+        source = _heavy_with_hydrogen_metadata(chem, sdf_mol, False)
+        if source.GetNumConformers() != 1:
+            raise ValueError("需要恰好一个SDF构象")
+        n = target.GetNumAtoms()
         mapping = None
-        for candidate in candidates:
-            if len(candidate) != n or len(set(candidate)) != n:
-                continue
-            if any(
-                atom_signature(target.GetAtomWithIdx(i))
-                != atom_signature(source.GetAtomWithIdx(j))
-                or target.GetAtomWithIdx(i).GetNumRadicalElectrons()
-                != source.GetAtomWithIdx(j).GetNumRadicalElectrons()
-                for i, j in enumerate(candidate)
-            ):
-                continue
-            valid = True
-            for bond in target.GetBonds():
-                other = source.GetBondBetweenAtoms(
-                    candidate[bond.GetBeginAtomIdx()],
-                    candidate[bond.GetEndAtomIdx()],
-                )
-                if other is None or (
-                    bond.GetBondType(), bond.GetIsAromatic()
-                ) != (other.GetBondType(), other.GetIsAromatic()):
-                    valid = False
-                    break
-            if valid:
-                mapping = tuple(candidate)
-                break
+        exact_error = None
+        if (source.GetNumAtoms(), source.GetNumBonds()) == (n, target.GetNumBonds()):
+            try:
+                source_graph, target_graph = chem.Mol(source), chem.Mol(target)
+                chem.RemoveStereochemistry(source_graph)
+                chem.RemoveStereochemistry(target_graph)
+                same_graph = chem.MolToSmiles(source_graph, isomericSmiles=True) \
+                    == chem.MolToSmiles(target_graph, isomericSmiles=True)
+                if same_graph:
+                    candidates = source.GetSubstructMatches(
+                        target, useChirality=True, uniquify=False, maxMatches=10001)
+                    if len(candidates) >= 10001:
+                        raise RuntimeError("原子映射候选超过10000，停止，不能确认完整搜索")
+                    for candidate in candidates:
+                        if len(candidate) != n or len(set(candidate)) != n:
+                            continue
+                        if any(
+                                (target.GetAtomWithIdx(i).GetAtomicNum(),
+                                 target.GetAtomWithIdx(i).GetIsotope(),
+                                 target.GetAtomWithIdx(i).GetFormalCharge(),
+                                 target.GetAtomWithIdx(i).GetIsAromatic(),
+                                 _hydrogen_count(target.GetAtomWithIdx(i)))
+                                != (source.GetAtomWithIdx(j).GetAtomicNum(),
+                                    source.GetAtomWithIdx(j).GetIsotope(),
+                                    source.GetAtomWithIdx(j).GetFormalCharge(),
+                                    source.GetAtomWithIdx(j).GetIsAromatic(),
+                                    _hydrogen_count(source.GetAtomWithIdx(j)))
+                                or target.GetAtomWithIdx(i).GetNumRadicalElectrons()
+                                != source.GetAtomWithIdx(j).GetNumRadicalElectrons()
+                                for i, j in enumerate(candidate)):
+                            continue
+                        valid = True
+                        for bond in target.GetBonds():
+                            other = source.GetBondBetweenAtoms(
+                                candidate[bond.GetBeginAtomIdx()], candidate[bond.GetEndAtomIdx()])
+                            if other is None or (bond.GetBondType(), bond.GetIsAromatic()) != (
+                                    other.GetBondType(), other.GetIsAromatic()):
+                                valid = False
+                                break
+                        if valid:
+                            mapping = tuple(candidate)
+                            break
+                else:
+                    mapping = _aromatic_representation_mapping(chem, source, target)
+            except (ValueError, RuntimeError) as exc:
+                exact_error = exc
+            if mapping is None:
+                mapping = _topology_mapping(chem, source, target)
+                mode = "topology_h_conserving" if mapping is not None else None
+            else:
+                mode = "exact"
+        else:
+            exact_error = ValueError("SMILES/SDF原子数或键数不一致")
+            mode = None
         if mapping is None:
-            raise ValueError("没有满足原子属性、化学键、自由基及已指定立体信息的完整映射")
-
-    original = np.asarray(source.GetConformer().GetPositions(), dtype=np.float64)
-    if original.shape != (n, 3) or not np.isfinite(original).all():
-        raise ValueError("SDF坐标非法")
-    aligned = original[np.asarray(mapping, dtype=np.int64)]
-    return target, aligned, mapping
+            message = exact_error or "SMILES/SDF非立体化学结构不一致（连接、键、电荷或同位素等）"
+            return _alignment_fallback(target, message, allow_1d_fallback)
+        original = np.asarray(source.GetConformer().GetPositions(), dtype=np.float64)
+        if original.shape != (n, 3) or not np.isfinite(original).all():
+            return _alignment_fallback(target, "SDF坐标非法", allow_1d_fallback)
+        aligned = original[np.asarray(mapping, dtype=np.int64)]
+        target.SetProp(_ALIGNMENT_MODE, mode)
+        _set_mol_mode(target, mol_mode(target),
+                      mol_degraded(target) or mol_degraded(source) or mode != "exact")
+        return target, aligned, tuple(mapping)
+    except MissingChemicalInput:
+        raise
+    except Exception as exc:
+        return _alignment_fallback(target, str(exc), allow_1d_fallback)
 
 
 align_sdf_coordinates = align_coordinates

@@ -12,6 +12,7 @@ from muse_encoder.featurize import RecordFeaturizer
 from muse_encoder.pretrain import dashboard as D
 from muse_encoder.pretrain.molecule3d import _resolve_external_file, external_base
 from muse_encoder.s5.official_graph_repairs import make_repair_entry
+from muse_encoder.structures import graph_from_smiles
 
 
 def main() -> None:
@@ -94,7 +95,13 @@ def main() -> None:
                     and str(record["inputs"].get("psmiles")).strip().lower() == "nan":
                 representation = "missing_polymer_sequence"
             else:
-                representation = "smiles_sequence"
+                smiles = record["inputs"].get("ligand_smiles", record["inputs"].get("smiles"))
+                try:
+                    graph_from_smiles(smiles, allow_unsanitized=True)
+                except (ValueError, RuntimeError):
+                    representation = "smiles_sequence"
+                else:
+                    representation = "unsanitized_topology"
             entries.append({
                 "record_id": record["id"], "representation": representation,
                 "input_fingerprint": D._input_repair_fingerprint(record),
@@ -121,6 +128,7 @@ def main() -> None:
         "representation_policy": {
             "official_graph": "same-record official structure; no forced SMILES connectivity alignment",
             "smiles_sequence": "raw chemical tokens with no 3D coordinates or inferred bond graph",
+            "unsanitized_topology": "explicit RDKit sanitize=False topology with no unverified 3D coordinates",
             "raw_peptide_sequence": "unsupported notation is retained as unknown residue tokens",
             "missing_polymer_sequence": "one explicit unknown token; the missing structure is not reconstructed",
         },

@@ -18,7 +18,7 @@ def main():
     subprocess.run(["git", "-C", str(repo), "diff", "--cached", "--quiet", "HEAD", "--", *relative], check=True)
     paths = subprocess.check_output(
         ["git", "-C", str(repo), "ls-files", "model_design/muse_encoder/*.py",
-         "model_design/configs/s5_continuous.yaml", "muse/**/*.py"], text=True).splitlines()
+         "model_design/configs/s5_continuous.yaml", "muse/*.py", "muse/**/*.py"], text=True).splitlines()
     root = Path(__file__).resolve().parent
     values = {}
     for name in sorted(paths):

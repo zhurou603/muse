@@ -1,0 +1,637 @@
+diff --git a/featurize.py b/featurize.py
+index 933df17..8ad7528 100644
+--- a/featurize.py
++++ b/featurize.py
+@@ -1,7 +1,9 @@
+ """四域记录级特征化；每条记录独立处理且从不静默截断。
+ 
+-RDKit 是默认必需依赖。``strict=False`` 只保留明确标记的开发降级路径。
+-序列记录走真正的 SMILES/PSMILES/残基 token，原子记录走 RDKit/PBC 图。
++RDKit 是默认必需依赖。严格路径只接受实际解析图、经验证的坐标映射或
++显式标记的未知输入 sentinel，不伪造线性分子；``strict=False`` 的无 RDKit
++开发降级仍保留。序列记录走真正的 SMILES/PSMILES/残基 token，原子记录走
++RDKit/PBC 图。
+ """
+ from __future__ import annotations
+ 
+@@ -24,9 +26,15 @@ from .config import (
+ from .tokenizers import default_tokenizers
+ from .structures import (
+     PBC_BASIS_CENTERS,
++    MissingChemicalInput,
+     align_coordinates,
++    alignment_error,
++    alignment_mode,
+     build_pbc_graph,
+     graph_from_smiles,
++    is_missing_chemical_input,
++    mol_degraded,
++    mol_mode,
+ )
+ 
+ try:
+@@ -234,6 +242,14 @@ def _smiles_fallback_graph(tokens: List[str], max_len=None):
+     return elements, bond, spd, _default_atom_features(elements, adjacency.sum(axis=1))
+ 
+ 
++def _unknown_molecule_graph():
++    """One explicit unknown element, with no fabricated molecular connectivity."""
++    elements = [DUMMY_ELEMENT]
++    bond = np.zeros((2, 2), dtype=np.int64)
++    spd = np.zeros((2, 2), dtype=np.int64)
++    return None, elements, bond, spd, _default_atom_features(elements, [0])
++
++
+ def _centered_coords(coords, n: int) -> np.ndarray:
+     coords = np.asarray(coords, dtype=np.float64)
+     if coords.shape != (n, 3):
+@@ -452,37 +468,43 @@ class RecordFeaturizer:
+         return self.strict if strict is None else bool(strict)
+ 
+     def _chemical_graph(self, smiles: str, strict: bool):
+-        tokens = self.tk["smiles"].tokenize(smiles)
+         if not _HAS_RDKIT:
+             if strict:
+                 raise ImportError("RDKit 是正式默认必需依赖；strict=True 禁止 fallback")
++            tokens = self.tk["smiles"].tokenize(smiles)
+             elements, bond, spd, features = _smiles_fallback_graph(tokens)
+             return None, elements, bond, spd, features, True
++        if is_missing_chemical_input(smiles):
++            return (*_unknown_molecule_graph(), True)
+         try:
+             mol, elements, bond, spd, features = _rdkit_graph(smiles)
+-            return mol, elements, bond, spd, features, False
+-        except Exception:
+-            if strict:
+-                raise
+-            elements, bond, spd, features = _smiles_fallback_graph(tokens)
+-            return None, elements, bond, spd, features, True
++            return mol, elements, bond, spd, features, mol_degraded(mol)
++        except (MissingChemicalInput, ValueError, RuntimeError):
++            # Never invent a linear graph.  Unrecoverable input becomes one
++            # explicitly degraded unknown element and cannot be used for 3D.
++            return (*_unknown_molecule_graph(), True)
+ 
+     def _validate_sequence_smiles(self, smiles: str, strict: bool):
+         if not _HAS_RDKIT:
+             if strict:
+                 raise ImportError("RDKit 是正式默认必需依赖；strict=True 禁止 fallback")
+             return True
++        if is_missing_chemical_input(smiles):
++            return True
+         try:
+             graph_from_smiles(smiles)
+             return False
+-        except Exception:
+-            if strict:
+-                raise
++        except (MissingChemicalInput, ValueError, RuntimeError):
+             return True
+ 
+     def _chemical_sequence(self, text: str, domain: int, kind: int, tokenizer_name: str, strict):
+         degraded = self._validate_sequence_smiles(text, strict)
+-        ids = self.tk[tokenizer_name].encode(text, add_cls=True)
++        missing = is_missing_chemical_input(text)
++        if missing:
++            tokenizer = self.tk[tokenizer_name]
++            ids = [tokenizer.cls_id, tokenizer.unk_id]
++        else:
++            ids = self.tk[tokenizer_name].encode(text, add_cls=True)
+         truncated = False
+         if len(ids) > self.cfg.max_seq_len:
+             # 超长 SMILES/PSMILES 与蛋白一致受统一序列上限约束（RoPE 表/max_seq_len）：
+@@ -500,6 +522,7 @@ class RecordFeaturizer:
+                 "sample_type": "molecule" if domain == DOMAIN_SMALL_MOLECULE else "polymer",
+                 "sequence_frontend": True,
+                 "degraded": degraded,
++                "missing_input": missing,
+                 "truncated": truncated,
+                 "output_token_indices": np.arange(1, length, dtype=np.int64),
+                 "expected_token_count": length - 1,
+@@ -530,14 +553,25 @@ class RecordFeaturizer:
+             return record
+ 
+         mol, elements, bond, spd, features, degraded = self._chemical_graph(smiles, strict)
++        align_mode = align_error = None
+         if sdf_mol is not None:
+             if coords is not None:
+                 raise ValueError("coords 与 sdf_mol 只能提供一个")
+-            if degraded:
+-                raise ValueError("开发 fallback 图不能用于严格 SDF 原子对齐")
+-            _, coords, mapping = align_coordinates(smiles, sdf_mol)
++            if mol is None:
++                raise ValueError("未知输入图不能用于 SDF 原子对齐")
++            mol, coords, mapping = align_coordinates(
++                smiles, sdf_mol, allow_1d_fallback=True)
++            # A mismatch never silently reuses the source molecule.  Rebuild all
++            # arrays from the returned target graph and drop unmatched coordinates.
++            elements = [atom.GetAtomicNum() for atom in mol.GetAtoms()]
++            bond, spd = _bond_and_spd(mol)
++            features = _rdkit_atom_features(mol)
++            align_mode, align_error = alignment_mode(mol), alignment_error(mol)
++            degraded = degraded or mol_degraded(mol) or coords is None
+         else:
+             mapping = None
++        if mol is None and coords is not None:
++            raise ValueError("未知输入图不能使用逐原子坐标")
+         n = len(elements)
+         centered = _centered_coords(coords, n) if coords is not None else None
+         c, cm = _coords_with_cls(centered, n)
+@@ -558,6 +592,10 @@ class RecordFeaturizer:
+                 "sample_type": "molecule",
+                 "smiles": smiles,
+                 "degraded": degraded,
++                "missing_input": is_missing_chemical_input(smiles),
++                "parse_mode": mol_mode(mol, "unknown_sentinel"),
++                "alignment_mode": align_mode,
++                "alignment_error": align_error,
+                 "sdf_mapping": mapping,
+                 "bond_pairs": (np.asarray([(bond.GetBeginAtomIdx(), bond.GetEndAtomIdx())
+                                            for bond in mol.GetBonds()], dtype=np.int64)
+@@ -795,6 +833,8 @@ class RecordFeaturizer:
+                 "protein_length": len(protein.token_ids) - 1,
+                 "ligand_length": len(ligand.token_ids) - 1,
+                 "degraded": ligand.meta.get("degraded", False),
++                "missing_input": ligand.meta.get("missing_input", False),
++                "parse_mode": ligand.meta.get("parse_mode"),
+             },
+         )
+         result.meta["expected_token_count"] = result.n_real_tokens
+diff --git a/pretrain/dashboard.py b/pretrain/dashboard.py
+index 69b210a..1f94f8d 100644
+--- a/pretrain/dashboard.py
++++ b/pretrain/dashboard.py
+@@ -64,6 +64,7 @@ from muse_encoder.pretrain.omc25 import (  # noqa: E402
+ )
+ from muse_encoder.pretrain.trainer import seed_everything, sha256_file  # noqa: E402
+ from muse_encoder.tokenizers import load_tokenizers  # noqa: E402
++from muse_encoder.structures import mol_from_sdf_bytes  # noqa: E402
+ 
+ DATA_ROOT = T.DATA_DIR
+ EXTERNAL_ROOT = T.EXTERNAL_DIR
+@@ -443,13 +444,7 @@ def _read_sdf_selected(path: Path, selected: set[str]) -> dict[str, Any]:
+                 raise ValueError(f"SDF 结构编号重复: {key}")
+             seen.add(key)
+             if key in selected:
+-                supplier = Chem.ForwardSDMolSupplier(
+-                    io.BytesIO(b"".join(block)), removeHs=False, sanitize=True
+-                )
+-                mol = next(supplier)
+-                if mol is None:
+-                    raise ValueError(f"SDF 严格解析失败: {key}")
+-                found[key] = mol
++                found[key] = mol_from_sdf_bytes(b"".join(block), key)
+                 if len(found) == len(selected):
+                     return found
+             block = []
+@@ -635,11 +630,15 @@ def _peptide_sequence_stats(sequence: str) -> dict[str, Any]:
+         char for char in chars
+         if char not in _ALLOWED_RESIDUES and char not in _ALLOWED_LOWER
+     })
+-    if unsupported:
+-        raise ValueError(f"肽序列含当前残基/原子路由不支持的修饰记号: {unsupported}")
++    # Preserve every original character position.  Unsupported notation is not
++    # translated or guessed: the residue tokenizer maps it to UNK and the record
++    # is explicitly marked degraded instead of disappearing from encoding.
+     return {
+         "lowercase_d_residues": int(lower),
+         "ambiguous_residues": int(ambiguous),
++        "unsupported_notation": unsupported,
++        "degraded": bool(unsupported),
++        "encoding_policy": "unknown_tokens_preserved" if unsupported else "residue_tokens",
+         "case_handling": "lowercase retained as D-residue chirality feature; no silent upper fallback",
+     }
+ 
+@@ -760,6 +759,8 @@ def _prepare_featurized(featurizer: RecordFeaturizer, raw: Mapping[str, Any]):
+     for key in ("_normalization", "_peptide_stats"):
+         if key in raw:
+             record.meta[key.lstrip("_")] = raw[key]
++    if (raw.get("_peptide_stats") or {}).get("degraded"):
++        record.meta["degraded"] = True
+     return record
+ 
+ 
+diff --git a/pretrain/molecule3d.py b/pretrain/molecule3d.py
+index dcd3c81..cee9944 100644
+--- a/pretrain/molecule3d.py
++++ b/pretrain/molecule3d.py
+@@ -36,7 +36,7 @@ from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple
+ 
+ import numpy as np
+ 
+-from ..structures import align_coordinates, require_rdkit
++from ..structures import align_coordinates, mol_from_sdf_bytes, require_rdkit
+ from .aux import AUX_ROOT, AUX_SOURCES, AuxSource, NamespacedRecord
+ from .aux_index import AuxIndex
+ from .corpora import PRETRAIN_ROOT, PROJECT_ROOT
+@@ -162,13 +162,9 @@ def read_sdf_mol_at(handle, offset: int, record_id: str):
+     name = block[0].decode("utf-8").strip()
+     if name != record_id:
+         raise ValueError(f"SDF offset={offset}: 记录名 {name!r} != 期望 {record_id!r}")
+-    supplier = chem.ForwardSDMolSupplier(
+-        io.BytesIO(b"".join(block)), removeHs=False, sanitize=True
+-    )
+-    mol = next(supplier, None)
+-    if mol is None:
+-        raise ValueError(f"SDF 记录 {record_id}: 严格解析失败")
+-    return mol
++    # The builder remains strict about graph identity: unsanitized SDF may be
++    # read, but align_coordinates below still rejects unproven 3D mappings.
++    return mol_from_sdf_bytes(b"".join(block), record_id, allow_unsanitized=True)
+ 
+ 
+ def load_geom_pickle(handle, offset: int, size: int):
+diff --git a/structures.py b/structures.py
+index 83de12a..2167d8d 100644
+--- a/structures.py
++++ b/structures.py
+@@ -25,15 +25,130 @@ def require_rdkit():
+     return Chem
+ 
+ 
+-def graph_from_smiles(smiles: str):
+-    """Return the heavy-atom graph in the official Uni-Mol atom order."""
++class MissingChemicalInput(ValueError):
++    """The input is an explicit missing sentinel, not a molecule."""
++
++
++_PARSE_MODE = "_muse_parse_mode"
++_DEGRADED = "_muse_degraded"
++_ALIGNMENT_MODE = "_muse_alignment_mode"
++_TOTAL_HS = "_muse_total_hs"
++_MISSING_TOKENS = {"", "nan", "na", "n/a", "none", "null", "."}
++
++
++def is_missing_chemical_input(value) -> bool:
++    return not isinstance(value, str) or value.strip().casefold() in _MISSING_TOKENS
++
++
++def _set_mol_mode(mol, mode: str, degraded: bool = False):
++    mol.SetProp(_PARSE_MODE, mode)
++    mol.SetBoolProp(_DEGRADED, bool(degraded))
++    return mol
++
++
++def mol_degraded(mol) -> bool:
++    return bool(mol is not None and mol.HasProp(_DEGRADED) and mol.GetBoolProp(_DEGRADED))
++
++
++def mol_mode(mol, default="strict") -> str:
++    return mol.GetProp(_PARSE_MODE) if mol is not None and mol.HasProp(_PARSE_MODE) else default
++
++
++def alignment_mode(mol) -> str | None:
++    return mol.GetProp(_ALIGNMENT_MODE) if mol is not None and mol.HasProp(_ALIGNMENT_MODE) else None
++
++
++def alignment_error(mol) -> str | None:
++    return mol.GetProp("_muse_alignment_error") \
++        if mol is not None and mol.HasProp("_muse_alignment_error") else None
++
++
++def _strip_ligand_annotation(smiles: str):
++    """Separate only explicit PDB ligand annotations, never arbitrary SMILES text."""
++    annotations = []
++    chemical = smiles.strip()
++    if "\t" in chemical:
++        chemical, suffix = chemical.split("\t", 1)
++        if suffix.isascii() and suffix.replace("_", "").isalnum() and suffix.endswith("_LIGAND"):
++            annotations.append(suffix)
++        else:
++            chemical = smiles.strip()
++    experimental = "_experimental"
++    if chemical.endswith(experimental):
++        candidate = chemical[:-len(experimental)]
++        if candidate:
++            chemical = candidate
++            annotations.append(experimental.lstrip("_"))
++    return chemical, annotations
++
++
++def _heavy_with_hydrogen_metadata(chem, mol, sanitize: bool):
++    """Remove H atoms while retaining their original per-heavy-atom counts."""
++    mol.UpdatePropertyCache(strict=bool(sanitize))
++    counts = [atom.GetTotalNumHs(includeNeighbors=True)
++              for atom in mol.GetAtoms() if atom.GetAtomicNum() != 1]
++    heavy = chem.RemoveAllHs(mol, sanitize=bool(sanitize))
++    if heavy.GetNumAtoms() != len(counts):
++        raise ValueError("重原子去氢后数量发生变化")
++    for atom, count in zip(heavy.GetAtoms(), counts):
++        atom.SetIntProp(_TOTAL_HS, int(count))
++    return heavy
++
++
++def _hydrogen_count(atom) -> int:
++    return int(atom.GetIntProp(_TOTAL_HS)) if atom.HasProp(_TOTAL_HS) else int(atom.GetTotalNumHs())
++
++
++def graph_from_smiles(smiles: str, allow_unsanitized: bool = True):
++    """Return a heavy graph without inventing atoms, bonds or connectivity.
++
++    Strict sanitization remains the first path.  If it fails, RDKit's
++    ``sanitize=False`` parser may retain the actual topology and is marked
++    ``unsanitized_topology``.  Explicit missing sentinels and syntax that RDKit
++    cannot tokenize still fail; callers must use an explicit unknown sentinel.
++    """
++    chem = require_rdkit()
++    if is_missing_chemical_input(smiles):
++        raise MissingChemicalInput("化学输入缺失或显式为空")
++    chemical, annotations = _strip_ligand_annotation(smiles)
++    if is_missing_chemical_input(chemical):
++        raise MissingChemicalInput("化学输入缺失或显式为空")
++    mol = chem.MolFromSmiles(chemical)
++    if mol is not None:
++        heavy = _heavy_with_hydrogen_metadata(chem, chem.AddHs(mol, addCoords=True), True)
++        _set_mol_mode(heavy, "strict", False)
++    else:
++        if not allow_unsanitized:
++            raise ValueError(f"RDKit 无法解析: {chemical[:80]}")
++        mol = chem.MolFromSmiles(chemical, sanitize=False)
++        if mol is None:
++            raise ValueError(f"RDKit 无法解析: {chemical[:80]}")
++        heavy = _heavy_with_hydrogen_metadata(chem, mol, False)
++        _set_mol_mode(heavy, "unsanitized_topology", True)
++    if heavy.GetNumAtoms() < 1:
++        raise ValueError("化学图没有重原子")
++    for index, annotation in enumerate(annotations):
++        heavy.SetProp(f"_muse_annotation_{index}", annotation)
++    return heavy
++
++
++def mol_from_sdf_bytes(block: bytes, record_id: str, allow_unsanitized: bool = True):
++    """Parse one official SDF block, retaining coordinates and parse provenance."""
++    import io
++
+     chem = require_rdkit()
+-    if not isinstance(smiles, str) or not smiles:
+-        raise ValueError("SMILES 必须是非空字符串")
+-    mol = chem.MolFromSmiles(smiles)
++    supplier = chem.ForwardSDMolSupplier(io.BytesIO(block), removeHs=False, sanitize=True)
++    mol = next(supplier, None)
++    if mol is not None:
++        return _set_mol_mode(mol, "strict", False)
++    if not allow_unsanitized:
++        raise ValueError(f"SDF 严格解析失败: {record_id}")
++    supplier = chem.ForwardSDMolSupplier(io.BytesIO(block), removeHs=False, sanitize=False)
++    mol = next(supplier, None)
+     if mol is None:
+-        raise ValueError(f"RDKit 无法解析: {smiles[:80]}")
+-    return chem.RemoveAllHs(chem.AddHs(mol, addCoords=True))
++        raise ValueError(f"SDF 严格及非严格解析均失败: {record_id}")
++    mol.UpdatePropertyCache(strict=False)
++    return _set_mol_mode(mol, "unsanitized_topology", True)
+ 
+ 
+ def atom_signature(atom):
+@@ -206,77 +321,190 @@ def _aromatic_representation_mapping(chem, source, target):
+     return None
+ 
+ 
+-def align_coordinates(smiles: str, sdf_mol):
+-    """Align original SDF coordinates to the official SMILES atom order.
++def _topology_mapping(chem, source, target, max_candidates=10000):
++    """Map target->source using connectivity and conserved atom attributes.
+ 
+-    The returned mapping maps every target/SMILES atom index to its source/SDF
+-    atom index. No coordinates are generated, reordered in place, or optimized.
+-    Aromatic/Kekulé differences require full sanitization and exact atom, bond,
+-    radical, hydrogen and stereo checks on the same mapping.
++    Bond order is intentionally compared only by connectivity here: this path is
++    for aromatic/Kekulé and SDF bond-perception differences.  Atomic number,
++    isotope, formal charge, original hydrogen count and radical count must match
++    at every mapped atom.  Specified stereo conflicts are rejected below.
+     """
+-    chem = require_rdkit()
+-    if sdf_mol is None:
+-        raise ValueError("SDF 解析失败")
+-    target = graph_from_smiles(smiles)
+-    source = chem.RemoveAllHs(sdf_mol)
+-    if source.GetNumConformers() != 1:
+-        raise ValueError("需要恰好一个SDF构象")
+     n = target.GetNumAtoms()
+-    if (source.GetNumAtoms(), source.GetNumBonds()) != (
+-        n, target.GetNumBonds()
+-    ):
+-        raise ValueError("SMILES/SDF原子数或键数不一致")
+-
+-    source_graph, target_graph = chem.Mol(source), chem.Mol(target)
+-    chem.RemoveStereochemistry(source_graph)
+-    chem.RemoveStereochemistry(target_graph)
+-    same_graph = chem.MolToSmiles(
+-        source_graph, isomericSmiles=True
+-    ) == chem.MolToSmiles(target_graph, isomericSmiles=True)
+-    if not same_graph:
+-        mapping = _aromatic_representation_mapping(chem, source, target)
+-        if mapping is None:
+-            raise ValueError("SMILES/SDF非立体化学结构不一致（连接、键、电荷或同位素等）")
+-    else:
+-        candidates = source.GetSubstructMatches(
+-            target, useChirality=True, uniquify=False, maxMatches=10001
++    if source.GetNumAtoms() != n or source.GetNumBonds() != target.GetNumBonds():
++        return None
++
++    def signature(atom):
++        return (
++            atom.GetAtomicNum(), atom.GetIsotope(), atom.GetFormalCharge(),
++            _hydrogen_count(atom), atom.GetNumRadicalElectrons(),
+         )
+-        if len(candidates) >= 10001:
+-            raise RuntimeError("原子映射候选超过10000，停止，不能确认完整搜索")
+-        mapping = None
+-        for candidate in candidates:
+-            if len(candidate) != n or len(set(candidate)) != n:
++
++    candidates = {
++        index: [j for j in range(n)
++                if signature(target.GetAtomWithIdx(index)) == signature(source.GetAtomWithIdx(j))]
++        for index in range(n)
++    }
++    if any(not values for values in candidates.values()):
++        return None
++    order = sorted(range(n), key=lambda index: (
++        len(candidates[index]), -target.GetAtomWithIdx(index).GetDegree(), index))
++    mapping = [-1] * n
++    used = set()
++    complete = 0
++
++    def stereo_compatible(candidate):
++        try:
++            if source.GetNumConformers() == 1:
++                chem.AssignStereochemistryFrom3D(source)
++            chem.AssignStereochemistry(target, cleanIt=True, force=True)
++        except (ValueError, RuntimeError):
++            pass
++        for i, j in enumerate(candidate):
++            target_atom = target.GetAtomWithIdx(i)
++            if not target_atom.HasProp("_CIPCode"):
+                 continue
+-            if any(
+-                atom_signature(target.GetAtomWithIdx(i))
+-                != atom_signature(source.GetAtomWithIdx(j))
+-                or target.GetAtomWithIdx(i).GetNumRadicalElectrons()
+-                != source.GetAtomWithIdx(j).GetNumRadicalElectrons()
+-                for i, j in enumerate(candidate)
+-            ):
++            source_atom = source.GetAtomWithIdx(j)
++            if not source_atom.HasProp("_CIPCode") \
++                    or source_atom.GetProp("_CIPCode") != target_atom.GetProp("_CIPCode"):
++                return False
++        for bond in target.GetBonds():
++            if bond.GetStereo() == chem.BondStereo.STEREONONE:
++                continue
++            other = source.GetBondBetweenAtoms(
++                candidate[bond.GetBeginAtomIdx()], candidate[bond.GetEndAtomIdx()])
++            if other is None or other.GetStereo() != bond.GetStereo():
++                return False
++        return True
++
++    def search(depth):
++        nonlocal complete
++        if depth == n:
++            complete += 1
++            return tuple(mapping) if stereo_compatible(mapping) else None
++        if complete >= max_candidates:
++            return None
++        index = order[depth]
++        for source_index in candidates[index]:
++            if source_index in used:
+                 continue
+             valid = True
+-            for bond in target.GetBonds():
+-                other = source.GetBondBetweenAtoms(
+-                    candidate[bond.GetBeginAtomIdx()],
+-                    candidate[bond.GetEndAtomIdx()],
+-                )
+-                if other is None or (
+-                    bond.GetBondType(), bond.GetIsAromatic()
+-                ) != (other.GetBondType(), other.GetIsAromatic()):
++            for bond in target.GetAtomWithIdx(index).GetBonds():
++                other_index = bond.GetOtherAtomIdx(index)
++                if mapping[other_index] >= 0 and source.GetBondBetweenAtoms(
++                        source_index, mapping[other_index]) is None:
+                     valid = False
+                     break
+-            if valid:
+-                mapping = tuple(candidate)
+-                break
+-        if mapping is None:
+-            raise ValueError("没有满足原子属性、化学键、自由基及已指定立体信息的完整映射")
++            if not valid:
++                continue
++            mapping[index] = source_index
++            used.add(source_index)
++            result = search(depth + 1)
++            if result is not None:
++                return result
++            used.remove(source_index)
++            mapping[index] = -1
++        return None
++
++    return search(0)
++
++
++def _alignment_fallback(target, message, allow_1d_fallback):
++    if not allow_1d_fallback:
++        raise ValueError(message)
++    target.SetProp(_ALIGNMENT_MODE, "smiles_1d_unmatched")
++    target.SetProp("_muse_alignment_error", str(message)[:500])
++    _set_mol_mode(target, mol_mode(target), True)
++    return target, None, None
++
+ 
+-    original = np.asarray(source.GetConformer().GetPositions(), dtype=np.float64)
+-    if original.shape != (n, 3) or not np.isfinite(original).all():
+-        raise ValueError("SDF坐标非法")
+-    aligned = original[np.asarray(mapping, dtype=np.int64)]
+-    return target, aligned, mapping
++def align_coordinates(smiles: str, sdf_mol, allow_1d_fallback: bool = False):
++    """Align official coordinates only after proving atom-level graph identity.
++
++    Exact RDKit matching is tried first.  A bounded topology matcher additionally
++    handles unsanitized SDF and aromatic/Kekulé differences while conserving the
++    original per-atom hydrogen counts.  If identity cannot be proved, the default
++    strict path raises.  A-test inference may explicitly request a marked 1D
++    fallback; it never receives reordered, generated or mismatched coordinates.
++    """
++    chem = require_rdkit()
++    if sdf_mol is None:
++        raise ValueError("SDF 解析失败")
++    target = graph_from_smiles(smiles)
++    try:
++        source = _heavy_with_hydrogen_metadata(chem, sdf_mol, False)
++        if source.GetNumConformers() != 1:
++            raise ValueError("需要恰好一个SDF构象")
++        n = target.GetNumAtoms()
++        mapping = None
++        exact_error = None
++        if (source.GetNumAtoms(), source.GetNumBonds()) == (n, target.GetNumBonds()):
++            try:
++                source_graph, target_graph = chem.Mol(source), chem.Mol(target)
++                chem.RemoveStereochemistry(source_graph)
++                chem.RemoveStereochemistry(target_graph)
++                same_graph = chem.MolToSmiles(source_graph, isomericSmiles=True) \
++                    == chem.MolToSmiles(target_graph, isomericSmiles=True)
++                if same_graph:
++                    candidates = source.GetSubstructMatches(
++                        target, useChirality=True, uniquify=False, maxMatches=10001)
++                    if len(candidates) >= 10001:
++                        raise RuntimeError("原子映射候选超过10000，停止，不能确认完整搜索")
++                    for candidate in candidates:
++                        if len(candidate) != n or len(set(candidate)) != n:
++                            continue
++                        if any(
++                                (target.GetAtomWithIdx(i).GetAtomicNum(),
++                                 target.GetAtomWithIdx(i).GetIsotope(),
++                                 target.GetAtomWithIdx(i).GetFormalCharge(),
++                                 target.GetAtomWithIdx(i).GetIsAromatic(),
++                                 _hydrogen_count(target.GetAtomWithIdx(i)))
++                                != (source.GetAtomWithIdx(j).GetAtomicNum(),
++                                    source.GetAtomWithIdx(j).GetIsotope(),
++                                    source.GetAtomWithIdx(j).GetFormalCharge(),
++                                    source.GetAtomWithIdx(j).GetIsAromatic(),
++                                    _hydrogen_count(source.GetAtomWithIdx(j)))
++                                or target.GetAtomWithIdx(i).GetNumRadicalElectrons()
++                                != source.GetAtomWithIdx(j).GetNumRadicalElectrons()
++                                for i, j in enumerate(candidate)):
++                            continue
++                        valid = True
++                        for bond in target.GetBonds():
++                            other = source.GetBondBetweenAtoms(
++                                candidate[bond.GetBeginAtomIdx()], candidate[bond.GetEndAtomIdx()])
++                            if other is None or (bond.GetBondType(), bond.GetIsAromatic()) != (
++                                    other.GetBondType(), other.GetIsAromatic()):
++                                valid = False
++                                break
++                        if valid:
++                            mapping = tuple(candidate)
++                            break
++                else:
++                    mapping = _aromatic_representation_mapping(chem, source, target)
++            except (ValueError, RuntimeError) as exc:
++                exact_error = exc
++            if mapping is None:
++                mapping = _topology_mapping(chem, source, target)
++                mode = "topology_h_conserving" if mapping is not None else None
++            else:
++                mode = "exact"
++        else:
++            exact_error = ValueError("SMILES/SDF原子数或键数不一致")
++            mode = None
++        if mapping is None:
++            message = exact_error or "SMILES/SDF非立体化学结构不一致（连接、键、电荷或同位素等）"
++            return _alignment_fallback(target, message, allow_1d_fallback)
++        original = np.asarray(source.GetConformer().GetPositions(), dtype=np.float64)
++        if original.shape != (n, 3) or not np.isfinite(original).all():
++            return _alignment_fallback(target, "SDF坐标非法", allow_1d_fallback)
++        aligned = original[np.asarray(mapping, dtype=np.int64)]
++        target.SetProp(_ALIGNMENT_MODE, mode)
++        _set_mol_mode(target, mol_mode(target),
++                      mol_degraded(target) or mol_degraded(source) or mode != "exact")
++        return target, aligned, tuple(mapping)
++    except MissingChemicalInput:
++        raise
++    except Exception as exc:
++        return _alignment_fallback(target, str(exc), allow_1d_fallback)
+ 
+ 
+ align_sdf_coordinates = align_coordinates

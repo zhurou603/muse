@@ -1,0 +1,50 @@
+# MUSE 统一 Encoder 正式预训练 S1a：序列域第一阶段（天然肽子课程在内，非天然肽 CycPept 留给 S1b）。
+# 语料全量真实课程：化学 SMILES 15% MLM(80/10/10) + 208D MTR（三语料 pooled norm），
+# 蛋白 15% MLM；骨架温度采样 τ=0.005（域→数据集→骨架三级）。
+# 所有 Encoder 参数从零初始化；禁止 models/ 公开权重。
+schema_version: muse.pretrain.s1a.v1
+seed: 42
+stage: 1
+deterministic: true
+data:
+  sources: [pubchem, chembl, pi1m, uniref50, pdb, natural_uniref50, natural_pdb]
+  mtr_norm: data/pretrain/targets/mtr_norm.json
+  aux_targets: null
+  scaffold_sampling: true        # 需要 data/pretrain/index/scaffolds/<name>.metadata.json 齐
+  unique_scaffolds: false
+  source_grouped: true           # 同源成组 micro-batch，消灭跨域 padding 浪费
+  molecule3d: false              # S1 为纯 2D 阶段，3D 坐标 S2 起接入
+  domain_weights:                # 沿用 smoke/设计基线配比
+    small_molecule: 0.35
+    polymer: 0.20
+    bio: 0.45
+  temperature: 0.005
+model:                           # 与 config.MuseConfig 正式默认一致，显式锁定
+  d_model: 1024
+  n_layers: 24
+  n_heads: 16
+  d_ffn: 2048
+  num_experts: 8
+  mole_every: 4
+  embed_dim: 1024
+  contrastive_dim: 256
+  descriptor_dim: 208
+  max_seq_len: 1024
+  dropout: 0.1
+training:
+  lr: 0.0001
+  warmup_steps: 1200             # 偏离文档 1 万：文档按整 epoch 设定；12k 步下 10k warmup 永远到不了峰值 lr
+  total_steps: 12000             # 实测 61.8 样本/s → 约 4.7 天；每 1000 步 checkpoint + 看板评估，达标即提前止损
+  micro_batch: 32                # 8 卡 × 32 × 累积 8 = 有效 2048；gradient_checkpointing 默认开，最坏批 ~24GB
+  accumulation_steps: 8
+  bf16: true
+  grad_clip: 1.0
+  mlm: true
+  denoise: false
+  align_2d3d: false
+  log_interval: 50
+  checkpoint_interval: 1000
+  prefetch: 4
+  weights:
+    mlm: 1.0
+    descriptor: 1.0

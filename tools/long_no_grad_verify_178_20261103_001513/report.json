@@ -1,0 +1,145 @@
+{
+  "status": "completed",
+  "scope": "3 historical long failures + 1 short control; no training or production cache",
+  "production_sha256": "99d22c6c8f3f0f3f3954043f2f6b6f3dc4c30901a7d3a483095c7bb44a4f30b3",
+  "candidate_sha256": "ea0cf8245dbb97d4b2a2ea2ff63af89dc0ab81ffd99b7a9d3de4aab84cc7e34c",
+  "sample_file_sha256": "a9079df93145d7c07cc00f8886cf433a4faa299ec570f3037a74ed68087e47a6",
+  "checkpoint": "/yinghepool/tech-dcu/zhaoyao/model_design/runs/s3-residual-pilot-02/checkpoints/final.pt",
+  "checkpoint_sha256": "38a4104c2a7963a2e2636af3f8398830515c17784118c55991ccfdd87400cbee",
+  "samples": [
+    {
+      "id": "muse__peer__protein__446c643b477878dabce4a1dac6b5e5e5",
+      "tokens": 1024,
+      "windowed": true,
+      "failed": [],
+      "candidate_forward_calls": 2,
+      "grad_enabled_in_forward": false,
+      "embedding_comparison": {
+        "features_allclose": true,
+        "features_exact_equal": true,
+        "max_abs_difference": 0.0,
+        "rtol": 0.0001,
+        "atol": 1e-05
+      },
+      "token_comparison": {
+        "features_allclose": true,
+        "features_exact_equal": true,
+        "max_abs_difference": 0.0,
+        "rtol": 0.0001,
+        "atol": 1e-05
+      },
+      "graph_only_comparison": {
+        "features_allclose": true,
+        "features_exact_equal": true,
+        "max_abs_difference": 0.0,
+        "rtol": 0.0001,
+        "atol": 1e-05
+      }
+    },
+    {
+      "id": "muse__peer__protein__e7159298e70a102ae4508d2fc2ffda68",
+      "tokens": 2048,
+      "windowed": true,
+      "failed": [],
+      "candidate_forward_calls": 3,
+      "grad_enabled_in_forward": false,
+      "embedding_comparison": {
+        "features_allclose": true,
+        "features_exact_equal": true,
+        "max_abs_difference": 0.0,
+        "rtol": 0.0001,
+        "atol": 1e-05
+      },
+      "token_comparison": {
+        "features_allclose": true,
+        "features_exact_equal": true,
+        "max_abs_difference": 0.0,
+        "rtol": 0.0001,
+        "atol": 1e-05
+      },
+      "graph_only_comparison": {
+        "features_allclose": true,
+        "features_exact_equal": true,
+        "max_abs_difference": 0.0,
+        "rtol": 0.0001,
+        "atol": 1e-05
+      }
+    },
+    {
+      "id": "muse__peer__protein__c4d78d138651bf04077d663577316630",
+      "tokens": 7406,
+      "windowed": true,
+      "failed": [],
+      "candidate_forward_calls": 8,
+      "grad_enabled_in_forward": false,
+      "embedding_comparison": {
+        "features_allclose": true,
+        "features_exact_equal": true,
+        "max_abs_difference": 0.0,
+        "rtol": 0.0001,
+        "atol": 1e-05
+      },
+      "token_comparison": {
+        "features_allclose": true,
+        "features_exact_equal": true,
+        "max_abs_difference": 0.0,
+        "rtol": 0.0001,
+        "atol": 1e-05
+      },
+      "graph_only_comparison": {
+        "features_allclose": true,
+        "features_exact_equal": true,
+        "max_abs_difference": 0.0,
+        "rtol": 0.0001,
+        "atol": 1e-05
+      }
+    },
+    {
+      "id": "muse__peer__protein__0001397b2b91e44db87b6b6cdd073c73",
+      "tokens": 237,
+      "windowed": false,
+      "failed": [],
+      "candidate_forward_calls": 1,
+      "grad_enabled_in_forward": false,
+      "embedding_comparison": {
+        "features_allclose": true,
+        "features_exact_equal": true,
+        "max_abs_difference": 0.0,
+        "rtol": 0.0001,
+        "atol": 1e-05
+      },
+      "token_comparison": {
+        "features_allclose": true,
+        "features_exact_equal": true,
+        "max_abs_difference": 0.0,
+        "rtol": 0.0001,
+        "atol": 1e-05
+      },
+      "graph_only_comparison": {
+        "features_allclose": true,
+        "features_exact_equal": true,
+        "max_abs_difference": 0.0,
+        "rtol": 0.0001,
+        "atol": 1e-05
+      }
+    }
+  ],
+  "checkpoint_checks": {
+    "checkpoint_sha256": true,
+    "checkpoint_config_sha256": true,
+    "loaded_config_sha256": true,
+    "requested_config_sha256": true
+  },
+  "original_error": [
+    {
+      "id": "muse__peer__protein__446c643b477878dabce4a1dac6b5e5e5",
+      "error": "Can't call numpy() on Tensor that requires grad. Use tensor.detach().numpy() instead."
+    }
+  ],
+  "production_unchanged": true,
+  "parameter_versions_unchanged": true,
+  "notes": [
+    "Small representative test, not recovery of every historical failure.",
+    "OOM, HIP kernel errors and partial-batch retry duplication are outside this patch."
+  ]
+}

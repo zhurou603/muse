@@ -1,0 +1,400 @@
+{
+  "status": "completed",
+  "production_sha256": "6889ba8a4a722455fa7d07633fe7765e3f61d56f48e4c584e0aee7977db17b32",
+  "candidate_sha256": "d0775c3ce82b8bb2d009766c47d834c2d74395b446fb517a84f55134ee69015c",
+  "checkpoint_sha256": "38a4104c2a7963a2e2636af3f8398830515c17784118c55991ccfdd87400cbee",
+  "rows": 4,
+  "failed_id_injected": "muse__peer__protein__0002a1e814c022767eedee3790096322",
+  "scope": "4 real rows; isolated caches; single process/device; no training",
+  "cases": [
+    {
+      "token_level": false,
+      "stages": {
+        "original_first": {
+          "central_hit": false,
+          "normalization_hits": 0,
+          "normalization_batches": 4,
+          "prepared_hits": 0,
+          "prepared_batches": 3,
+          "forward_calls": 3,
+          "forward_rows": 3,
+          "model_loads": 1,
+          "successful_rows": 3,
+          "failed": [
+            {
+              "id": "muse__peer__protein__0002a1e814c022767eedee3790096322",
+              "error": "DIAGNOSTIC injected normalization failure"
+            }
+          ]
+        },
+        "original_repeat": {
+          "central_hit": false,
+          "normalization_hits": 3,
+          "normalization_batches": 4,
+          "prepared_hits": 3,
+          "prepared_batches": 3,
+          "forward_calls": 3,
+          "forward_rows": 3,
+          "model_loads": 0,
+          "successful_rows": 3,
+          "failed": [
+            {
+              "id": "muse__peer__protein__0002a1e814c022767eedee3790096322",
+              "error": "DIAGNOSTIC injected normalization failure"
+            }
+          ]
+        },
+        "candidate_first": {
+          "central_hit": false,
+          "partial_hit": false,
+          "reused_embedding_rows": 0,
+          "retried_records": 0,
+          "normalization_hits": 0,
+          "normalization_batches": 4,
+          "prepared_hits": 0,
+          "prepared_batches": 3,
+          "forward_calls": 3,
+          "forward_rows": 3,
+          "model_loads": 1,
+          "successful_rows": 3,
+          "failed": [
+            {
+              "id": "muse__peer__protein__0002a1e814c022767eedee3790096322",
+              "error": "DIAGNOSTIC injected normalization failure"
+            }
+          ]
+        },
+        "candidate_repeat": {
+          "central_hit": false,
+          "partial_hit": true,
+          "reused_embedding_rows": 3,
+          "retried_records": 1,
+          "normalization_hits": 0,
+          "normalization_batches": 1,
+          "prepared_hits": 0,
+          "prepared_batches": 0,
+          "forward_calls": 0,
+          "forward_rows": 0,
+          "model_loads": 0,
+          "successful_rows": 3,
+          "failed": [
+            {
+              "id": "muse__peer__protein__0002a1e814c022767eedee3790096322",
+              "error": "DIAGNOSTIC injected normalization failure"
+            }
+          ]
+        },
+        "candidate_recovered": {
+          "central_hit": false,
+          "partial_hit": true,
+          "reused_embedding_rows": 3,
+          "retried_records": 1,
+          "normalization_hits": 0,
+          "normalization_batches": 1,
+          "prepared_hits": 0,
+          "prepared_batches": 1,
+          "forward_calls": 1,
+          "forward_rows": 1,
+          "model_loads": 0,
+          "successful_rows": 4,
+          "failed": []
+        },
+        "candidate_complete_hit": {
+          "central_hit": true,
+          "normalization_hits": 4,
+          "prepared_hits": 4,
+          "forward_calls": 0,
+          "forward_rows": 0,
+          "model_loads": 0,
+          "successful_rows": 4,
+          "failed": []
+        },
+        "original_clean_reference": {
+          "central_hit": false,
+          "normalization_hits": 3,
+          "normalization_batches": 4,
+          "prepared_hits": 3,
+          "prepared_batches": 4,
+          "forward_calls": 4,
+          "forward_rows": 4,
+          "model_loads": 0,
+          "successful_rows": 4,
+          "failed": []
+        },
+        "old_complete_cache_hit": {
+          "central_hit": true,
+          "normalization_hits": 4,
+          "prepared_hits": 4,
+          "forward_calls": 0,
+          "forward_rows": 0,
+          "model_loads": 0,
+          "successful_rows": 4,
+          "failed": []
+        }
+      },
+      "partial_comparison": {
+        "embeddings": {
+          "features_allclose": true,
+          "features_exact_equal": true,
+          "max_abs_difference": 0.0,
+          "rtol": 0.0001,
+          "atol": 1e-05
+        }
+      },
+      "reuse_comparison": {
+        "embeddings": {
+          "features_allclose": true,
+          "features_exact_equal": true,
+          "max_abs_difference": 0.0,
+          "rtol": 0.0001,
+          "atol": 1e-05
+        }
+      },
+      "recovery_comparison": {
+        "embeddings": {
+          "features_allclose": true,
+          "features_exact_equal": true,
+          "max_abs_difference": 0.0,
+          "rtol": 0.0001,
+          "atol": 1e-05
+        }
+      },
+      "complete_comparison": {
+        "embeddings": {
+          "features_allclose": true,
+          "features_exact_equal": true,
+          "max_abs_difference": 0.0,
+          "rtol": 0.0001,
+          "atol": 1e-05
+        }
+      },
+      "old_cache_comparison": {
+        "embeddings": {
+          "features_allclose": true,
+          "features_exact_equal": true,
+          "max_abs_difference": 0.0,
+          "rtol": 0.0001,
+          "atol": 1e-05
+        }
+      }
+    },
+    {
+      "token_level": true,
+      "stages": {
+        "original_first": {
+          "central_hit": false,
+          "normalization_hits": 0,
+          "normalization_batches": 4,
+          "prepared_hits": 0,
+          "prepared_batches": 3,
+          "forward_calls": 3,
+          "forward_rows": 3,
+          "model_loads": 0,
+          "successful_rows": 3,
+          "failed": [
+            {
+              "id": "muse__peer__protein__0002a1e814c022767eedee3790096322",
+              "error": "DIAGNOSTIC injected normalization failure"
+            }
+          ]
+        },
+        "original_repeat": {
+          "central_hit": false,
+          "normalization_hits": 3,
+          "normalization_batches": 4,
+          "prepared_hits": 3,
+          "prepared_batches": 3,
+          "forward_calls": 3,
+          "forward_rows": 3,
+          "model_loads": 0,
+          "successful_rows": 3,
+          "failed": [
+            {
+              "id": "muse__peer__protein__0002a1e814c022767eedee3790096322",
+              "error": "DIAGNOSTIC injected normalization failure"
+            }
+          ]
+        },
+        "candidate_first": {
+          "central_hit": false,
+          "partial_hit": false,
+          "reused_embedding_rows": 0,
+          "retried_records": 0,
+          "normalization_hits": 0,
+          "normalization_batches": 4,
+          "prepared_hits": 0,
+          "prepared_batches": 3,
+          "forward_calls": 3,
+          "forward_rows": 3,
+          "model_loads": 0,
+          "successful_rows": 3,
+          "failed": [
+            {
+              "id": "muse__peer__protein__0002a1e814c022767eedee3790096322",
+              "error": "DIAGNOSTIC injected normalization failure"
+            }
+          ]
+        },
+        "candidate_repeat": {
+          "central_hit": false,
+          "partial_hit": true,
+          "reused_embedding_rows": 3,
+          "retried_records": 1,
+          "normalization_hits": 0,
+          "normalization_batches": 1,
+          "prepared_hits": 0,
+          "prepared_batches": 0,
+          "forward_calls": 0,
+          "forward_rows": 0,
+          "model_loads": 0,
+          "successful_rows": 3,
+          "failed": [
+            {
+              "id": "muse__peer__protein__0002a1e814c022767eedee3790096322",
+              "error": "DIAGNOSTIC injected normalization failure"
+            }
+          ]
+        },
+        "candidate_recovered": {
+          "central_hit": false,
+          "partial_hit": true,
+          "reused_embedding_rows": 3,
+          "retried_records": 1,
+          "normalization_hits": 0,
+          "normalization_batches": 1,
+          "prepared_hits": 0,
+          "prepared_batches": 1,
+          "forward_calls": 1,
+          "forward_rows": 1,
+          "model_loads": 0,
+          "successful_rows": 4,
+          "failed": []
+        },
+        "candidate_complete_hit": {
+          "central_hit": true,
+          "normalization_hits": 4,
+          "prepared_hits": 4,
+          "forward_calls": 0,
+          "forward_rows": 0,
+          "model_loads": 0,
+          "successful_rows": 4,
+          "failed": []
+        },
+        "original_clean_reference": {
+          "central_hit": false,
+          "normalization_hits": 3,
+          "normalization_batches": 4,
+          "prepared_hits": 3,
+          "prepared_batches": 4,
+          "forward_calls": 4,
+          "forward_rows": 4,
+          "model_loads": 0,
+          "successful_rows": 4,
+          "failed": []
+        },
+        "old_complete_cache_hit": {
+          "central_hit": true,
+          "normalization_hits": 4,
+          "prepared_hits": 4,
+          "forward_calls": 0,
+          "forward_rows": 0,
+          "model_loads": 0,
+          "successful_rows": 4,
+          "failed": []
+        }
+      },
+      "partial_comparison": {
+        "embeddings": {
+          "features_allclose": true,
+          "features_exact_equal": true,
+          "max_abs_difference": 0.0,
+          "rtol": 0.0001,
+          "atol": 1e-05
+        },
+        "tokens": {
+          "features_allclose": true,
+          "features_exact_equal": true,
+          "max_abs_difference": 0.0,
+          "rtol": 0.0001,
+          "atol": 1e-05
+        }
+      },
+      "reuse_comparison": {
+        "embeddings": {
+          "features_allclose": true,
+          "features_exact_equal": true,
+          "max_abs_difference": 0.0,
+          "rtol": 0.0001,
+          "atol": 1e-05
+        },
+        "tokens": {
+          "features_allclose": true,
+          "features_exact_equal": true,
+          "max_abs_difference": 0.0,
+          "rtol": 0.0001,
+          "atol": 1e-05
+        }
+      },
+      "recovery_comparison": {
+        "embeddings": {
+          "features_allclose": true,
+          "features_exact_equal": true,
+          "max_abs_difference": 0.0,
+          "rtol": 0.0001,
+          "atol": 1e-05
+        },
+        "tokens": {
+          "features_allclose": true,
+          "features_exact_equal": true,
+          "max_abs_difference": 0.0,
+          "rtol": 0.0001,
+          "atol": 1e-05
+        }
+      },
+      "complete_comparison": {
+        "embeddings": {
+          "features_allclose": true,
+          "features_exact_equal": true,
+          "max_abs_difference": 0.0,
+          "rtol": 0.0001,
+          "atol": 1e-05
+        },
+        "tokens": {
+          "features_allclose": true,
+          "features_exact_equal": true,
+          "max_abs_difference": 0.0,
+          "rtol": 0.0001,
+          "atol": 1e-05
+        }
+      },
+      "old_cache_comparison": {
+        "embeddings": {
+          "features_allclose": true,
+          "features_exact_equal": true,
+          "max_abs_difference": 0.0,
+          "rtol": 0.0001,
+          "atol": 1e-05
+        },
+        "tokens": {
+          "features_allclose": true,
+          "features_exact_equal": true,
+          "max_abs_difference": 0.0,
+          "rtol": 0.0001,
+          "atol": 1e-05
+        }
+      }
+    }
+  ],
+  "production_unchanged": true,
+  "parameter_versions_unchanged": true,
+  "total_counters": {
+    "forward_calls": 28,
+    "forward_rows": 28,
+    "model_loads": 2
+  },
+  "notes": [
+    "Failure was temporarily injected; input records unchanged.",
+    "Recovered results preserve input ID order and token alignment.",
+    "This measures avoided work, not full 90-task wall-time improvement."
+  ]
+}

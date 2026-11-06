@@ -1,0 +1,65 @@
+schema_version: muse_encoder.external_provenance.v1
+# 这是复现审计模板，不是已完成的血缘证明。把原仓库真实值补齐后再运行
+# python -m muse_encoder.s5.audit_external ...；未知项会 fail closed。
+external_corpora:
+  - name: PubChem CID-SMILES
+    version_or_release: 待核验
+    source_url: https://ftp.ncbi.nlm.nih.gov/pubchem/Compound/Extras/CID-SMILES.gz
+    license: 待核验
+    purpose: 无标签 SMILES MLM 与输入可计算 208D 描述符
+    records: 40000000
+    raw_sha256: 待核验
+    cleaned_sha256: 待核验
+    download_date: 待核验
+    raw_file_name: pubchem_cid_smiles.gz
+    sampling: 固定种子 42 蓄水池抽样；沿用既有 40M 文件，不用最新版替换
+    labels_used_for_encoder: false
+    decontamination_audit: data/pretrain/audit/dedup_molecules.pubchem.json
+  - name: ChEMBL chemreps
+    version_or_release: ChEMBL 37
+    source_url: https://ftp.ebi.ac.uk/pub/databases/chembl/ChEMBLdb/releases/chembl_37/chembl_37_chemreps.txt.gz
+    license: 待核验
+    purpose: 无标签 SMILES MLM 与输入可计算 208D 描述符
+    records: 2870569
+    raw_sha256: 待核验
+    cleaned_sha256: 待核验
+    download_date: 待核验
+    raw_file_name: chembl_37_chemreps.txt.gz
+    labels_used_for_encoder: false
+    decontamination_audit: data/pretrain/audit/dedup_molecules.chembl.json
+  - name: PI1M
+    version_or_release: PI1M_v2.csv
+    source_url: https://raw.githubusercontent.com/RUIMINMA1996/PI1M/master/PI1M_v2.csv
+    license: Data for academic purpose only（原仓库 Note）
+    purpose: 无标签 PSMILES MLM、五视图与输入可计算 208D 描述符
+    records: 995542
+    raw_sha256: 待核验
+    cleaned_sha256: 待核验
+    download_date: 待核验
+    raw_file_name: PI1M_v2.csv
+    labels_used_for_encoder: false
+    decontamination_audit: data/pretrain/audit/dedup_molecules.pi1m.json
+  - name: UniRef50
+    version_or_release: 待核验
+    source_url: https://ftp.uniprot.org/pub/databases/uniprot/uniref/uniref50/uniref50.fasta.gz
+    license: 待核验
+    purpose: 无标签蛋白残基 MLM 与短序列 replay
+    records: 53624246
+    raw_sha256: 待核验
+    cleaned_sha256: 待核验
+    download_date: 待核验
+    raw_file_name: uniref50.fasta.gz
+    labels_used_for_encoder: false
+    decontamination_audit: data/pretrain/audit/dedup_sequences.uniref50.json
+  - name: RCSB PDB SEQRES
+    version_or_release: 待核验
+    source_url: https://files.rcsb.org/pub/pdb/derived_data/pdb_seqres.txt.gz
+    license: 待核验
+    purpose: 无标签 PDB 序列 MLM、长短序列 replay
+    records: 630326
+    raw_sha256: 待核验
+    cleaned_sha256: 待核验
+    download_date: 待核验
+    raw_file_name: pdb_seqres.txt.gz
+    labels_used_for_encoder: false
+    decontamination_audit: data/pretrain/audit/dedup_sequences.pdb.json

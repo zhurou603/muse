@@ -1,0 +1,49 @@
+# MUSE 正式预训练 S1b：肽两步课程第二步——在 S1a checkpoint 上续训，
+# 加入 CycPeptMPDB 非天然肽（原子级语义掩码 30/40/30），其余域回放防遗忘。
+# resume 由 CLI --resume 传入 S1a 的 final.pt。
+schema_version: muse.pretrain.s1b.v1
+seed: 42
+stage: 2
+deterministic: true
+data:
+  sources: [pubchem, chembl, pi1m, uniref50, pdb, natural_uniref50, natural_pdb, cycpept]
+  mtr_norm: data/pretrain/targets/mtr_norm.json
+  aux_targets: null
+  scaffold_sampling: true
+  unique_scaffolds: false
+  source_grouped: true
+  molecule3d: false
+  domain_weights:
+    small_molecule: 0.35
+    polymer: 0.20
+    bio: 0.45
+  temperature: 0.005
+model:
+  d_model: 1024
+  n_layers: 24
+  n_heads: 16
+  d_ffn: 2048
+  num_experts: 8
+  mole_every: 4
+  embed_dim: 1024
+  contrastive_dim: 256
+  descriptor_dim: 208
+  max_seq_len: 1024
+  dropout: 0.1
+training:
+  lr: 0.0001
+  warmup_steps: 500
+  total_steps: 6000              # 非天然肽续训短课程；preflight 后冻结
+  micro_batch: 32
+  accumulation_steps: 8
+  bf16: true
+  grad_clip: 1.0
+  mlm: true
+  denoise: false
+  align_2d3d: false
+  log_interval: 50
+  checkpoint_interval: 500
+  prefetch: 4
+  weights:
+    mlm: 1.0
+    descriptor: 1.0

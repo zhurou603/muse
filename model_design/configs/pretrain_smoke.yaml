@@ -1,0 +1,47 @@
+stage: 0
+seed: 42
+deterministic: true
+model:
+  d_model: 32
+  n_layers: 2
+  n_heads: 4
+  d_ffn: 48
+  num_experts: 2
+  mole_every: 1
+  embed_dim: 24
+  contrastive_dim: 8
+  descriptor_dim: 208
+  max_seq_len: 2048
+  dropout: 0.0
+data:
+  sources: [chembl, pi1m, natural_uniref50, cycpept]
+  domain_weights:
+    small_molecule: 0.35
+    polymer: 0.20
+    bio: 0.45
+  mtr_norm: data/pretrain/targets/mtr_norm.dev.json
+  aux_targets: null
+training:
+  total_steps: 3
+  micro_batch: 4
+  accumulation_steps: 1
+  lr: 0.0001
+  warmup_steps: 1
+  log_interval: 1
+  checkpoint_interval: 1
+  grad_clip: 1.0
+  bf16: true
+  prefetch: 2
+  mlm: true
+  denoise: false
+  weights:
+    mlm: 1.0
+    descriptor: 1.0
+    denoise: 1.0
+    coordinate: 1.0
+    distance: 1.0
+    energy: 1.0
+    force: 30.0
+    stress: 1.0
+    align: 1.0
+    aux: 1.0

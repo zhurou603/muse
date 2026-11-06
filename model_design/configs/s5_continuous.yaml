@@ -1,0 +1,115 @@
+schema_version: muse_encoder.s5_config.v1
+stage: 5
+seed: 42
+deterministic: true
+model:
+  d_model: 1024
+  n_layers: 24
+  n_heads: 16
+  d_ffn: 2048
+  num_experts: 8
+  mole_every: 4
+  embed_dim: 1024
+  contrastive_dim: 256
+  descriptor_dim: 208
+  max_seq_len: 1024
+  dropout: 0.1
+  crystal_composition_features: true
+  crystal_composition_scale: 128.0
+  conservative_force: false
+
+data:
+  data_root: ${REPO_ROOT}/data/muse-a/MUSE-A/data
+  data_manifest: ${REPO_ROOT}/data/pretrain/manifest/s5_data_manifest.json
+  a_train_targets: ${REPO_ROOT}/data/pretrain/targets/s5_a_train_targets.json
+  dbaasp_targets: ${REPO_ROOT}/data/pretrain/stage2/dbaasp/targets.json
+  dbaasp_replay_dir: ${REPO_ROOT}/data/pretrain/stage2/dbaasp
+  aux_targets: ${REPO_ROOT}/data/pretrain/targets/aux_targets.json
+  mtr_norm: ${REPO_ROOT}/data/pretrain/targets/mtr_norm.json
+  molecule3d_sources: [qmugs, qm9, geom_drugs]
+  dbaasp_sources:
+    main: dbaasp_v4/target_activity
+    hemo: dbaasp_hemo
+    nonmic: dbaasp_nonmic
+    short_uniref: natural_uniref50
+    short_pdb: natural_pdb
+    long_pdb: pdb
+  crystal:
+    cache_dir: ${REPO_ROOT}/data/pretrain/cache/omc25_frames
+    stats: ${REPO_ROOT}/data/pretrain/targets/omc25_residual_frame_stats.json
+    element_references: ${REPO_ROOT}/data/pretrain/targets/omc25_element_references.json
+    sample_jsonl: ${REPO_ROOT}/data/pretrain/index/omc25.sample.jsonl
+    suggested_exclude_heaps: ${REPO_ROOT}/data/pretrain/audit/omc25-parent-recovery/suggested_exclude_heaps.jsonl
+    parent_recovery: ${REPO_ROOT}/data/pretrain/audit/omc25-parent-recovery/train.heap_recovery.jsonl
+    external_root: ${REPO_ROOT}/data/muse-a/MUSE-A/external_inputs/A_datasets/organic_crystal/OMC25
+    lmdb_cache_root: ${REPO_ROOT}/data/pretrain/cache/omc25
+  provenance_files:
+    - {path: "${REPO_ROOT}/data/pretrain/targets/omc25_residual_frame_stats.json", role: crystal_stats}
+    - {path: "${REPO_ROOT}/data/pretrain/targets/omc25_element_references.json", role: crystal_element_references}
+    - {path: "${REPO_ROOT}/data/pretrain/index/omc25.sample.jsonl", role: crystal_sample}
+    - {path: "${REPO_ROOT}/data/pretrain/audit/omc25-parent-recovery/suggested_exclude_heaps.jsonl", role: crystal_exclusions}
+    - {path: "${REPO_ROOT}/data/pretrain/audit/omc25-parent-recovery/train.heap_recovery.jsonl", role: crystal_parent_recovery}
+    - {path: "${REPO_ROOT}/data/pretrain/index/molecule3d/qm9/qm9.read_failures.jsonl", role: molecule3d_registered_failures}
+    - {path: "${REPO_ROOT}/data/pretrain/stage2/dbaasp/unsupported_train.rows.txt", role: dbaasp_unsupported_train}
+    - {path: "${REPO_ROOT}/data/pretrain/manifest/external_provenance.yaml", role: external_provenance}
+
+curriculum:
+  slots:
+    - {domain: small_molecule, label: quantum_aux_a, options: [qmugs, pubchemqc], weights: {mlm: 0.2, aux: 1.0, energy: 1.0, denoise: 0.1, align: 0.05}}
+    - {domain: small_molecule, label: quantum_aux_b, options: [qm9, pcqm4v2], weights: {mlm: 0.2, aux: 1.0, energy: 1.0, denoise: 0.1, align: 0.05}}
+    - {domain: small_molecule, label: geom_energy_3d, options: [geom_drugs], weights: {mlm: 0.2, aux: 1.0, energy: 1.0, denoise: 0.1, align: 0.05}}
+    - {domain: small_molecule, label: quantum_a_train, options: ["@small_quantum_train"], weights: {mlm: 0.2, aux: 1.0}}
+    - {domain: small_molecule, label: mtr_replay, options: [pubchem, chembl], weights: {mlm: 1.0, descriptor: 1.0}}
+    - {domain: small_molecule, label: physical_a_train, options: ["@small_physical"], weights: {mlm: 0.2, aux: 1.0}}
+    - {domain: polymer, label: pi1m_replay_a, options: [pi1m], weights: {mlm: 1.0, descriptor: 1.0}}
+    - {domain: polymer, label: pi1m_replay_b, options: [pi1m], weights: {mlm: 1.0, descriptor: 1.0}}
+    - {domain: polymer, label: pi1m_replay_c, options: [pi1m], weights: {mlm: 1.0, descriptor: 1.0}}
+    - {domain: polymer, label: polymer_genome_gap, options: ["@polymer_genome_gap"], weights: {mlm: 0.2, aux: 1.0}}
+    - {domain: polymer, label: electronic_replay_tasks, options: ["@polymer_electronic"], weights: {mlm: 0.2, aux: 1.0}}
+    - {domain: bio, label: dbaasp_micro_a, source: dbaasp_v4/target_activity, group: dbaasp, weights: {mlm: 1.0, aux: 1.0}}
+    - {domain: bio, label: dbaasp_micro_b, source: dbaasp_v4/target_activity, group: dbaasp, weights: {mlm: 1.0, aux: 1.0}}
+    - {domain: bio, label: megascale, options: [megascale_d1, megascale_d23], weights: {mlm: 0.2, aux: 1.0}}
+    - {domain: bio, label: peer, options: ["@peer"], weights: {mlm: 0.2, aux: 1.0}}
+    - {domain: bio, label: cath, options: ["@cath"], weights: {mlm: 0.2, aux: 1.0}}
+    - {domain: bio, label: sequence_replay, options: [uniref50, pdb, natural_uniref50, natural_pdb], weights: {mlm: 1.0}}
+    - {domain: crystal, label: omc25_a, options: [omc25], weights: {mlm: 0.0, aux: 0.0, energy: 10.0, force: 30.0, stress: 1.0}}
+    - {domain: crystal, label: omc25_b, options: [omc25], weights: {mlm: 0.0, aux: 0.0, energy: 10.0, force: 30.0, stress: 1.0}}
+    - {domain: crystal, label: omc25_c, options: [omc25], weights: {mlm: 0.0, aux: 0.0, energy: 10.0, force: 30.0, stress: 1.0}}
+
+training:
+  micro_batch: 8
+  accumulation_steps: 1
+  prefetch: 4
+  lr: 1.0e-5
+  new_head_lr: 1.0e-4
+  weight_decay: 0.01
+  warmup_steps: 50
+  grad_clip: 1.0
+  bf16: true
+  log_interval: 20
+  checkpoint_interval: 100
+  log_course_rows: true
+  exclude_unparseable: true
+  weights: {}
+
+evaluation:
+  batch_size: 128
+  train_cap: 200000
+  official_graph_repairs: ${REPO_ROOT}/data/pretrain/manifest/qm9_official_graph_repairs.v3.json
+  team: zhaoyao
+  sentinel_interval_steps: 100
+  sentinel_limit: 256
+  sentinel_shadow_limit: 256
+  # 空列表表示 13 个数据集的固定前 N 条 sentinel；结果永远标记 smoke。
+  sentinel_subsets: []
+  full_min_steps: 200
+  full_interval_seconds: 86400
+  shadow_properties: 8
+  min_j_delta: 0.02
+  max_encoder_missing_fraction: 0.001
+  shadow_forget_threshold: 0.01
+  domain_forget_thresholds:
+    small_molecule: 0.20
+    polymer: 0.20
+    biomacromolecule: 0.20
+    organic_crystal: 0.10

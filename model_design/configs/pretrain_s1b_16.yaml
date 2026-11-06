@@ -1,0 +1,54 @@
+data:
+  aux_targets: null
+  domain_weights:
+    bio: 0.45
+    polymer: 0.2
+    small_molecule: 0.35
+  molecule3d: false
+  mtr_norm: data/pretrain/targets/mtr_norm.json
+  scaffold_sampling: true
+  source_grouped: true
+  sources:
+  - pubchem
+  - chembl
+  - pi1m
+  - uniref50
+  - pdb
+  - natural_uniref50
+  - natural_pdb
+  - cycpept
+  temperature: 0.005
+  unique_scaffolds: false
+deterministic: true
+model:
+  contrastive_dim: 256
+  d_ffn: 2048
+  d_model: 1024
+  descriptor_dim: 208
+  dropout: 0.1
+  embed_dim: 1024
+  max_seq_len: 1024
+  mole_every: 4
+  n_heads: 16
+  n_layers: 24
+  num_experts: 8
+schema_version: muse.pretrain.s1b.v1
+seed: 42
+stage: 2
+training:
+  accumulation_steps: 4
+  align_2d3d: false
+  bf16: true
+  checkpoint_interval: 500
+  denoise: false
+  grad_clip: 1.0
+  log_interval: 50
+  lr: 0.0001
+  micro_batch: 32
+  mlm: true
+  prefetch: 4
+  total_steps: 6000
+  warmup_steps: 500
+  weights:
+    descriptor: 1.0
+    mlm: 1.0

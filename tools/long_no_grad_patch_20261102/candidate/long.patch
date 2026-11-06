@@ -1,0 +1,10 @@
+--- parallel_dashboard.py (cache+fixed cards)
++++ parallel_dashboard.py (no_grad candidate)
+@@ -208,6 +208,7 @@
+     return _ENCODER, _ENCODER.cfg
+ 
+ 
++@torch.no_grad()
+ def _encode_items(encoder, cfg, raw, items, batch_size: int, token_level: bool, device: str):
+     ok_ids = []
+     embeddings = []

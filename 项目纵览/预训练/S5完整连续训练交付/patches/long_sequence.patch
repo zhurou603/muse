@@ -1,0 +1,18 @@
+--- a/code/model_design/muse_encoder/featurize.py
++++ b/code/model_design/muse_encoder/featurize.py
+@@ -483,12 +483,10 @@
+     def _chemical_sequence(self, text: str, domain: int, kind: int, tokenizer_name: str, strict):
+         degraded = self._validate_sequence_smiles(text, strict)
+         ids = self.tk[tokenizer_name].encode(text, add_cls=True)
++        # 保留完整化学 token 序列。训练数据集通过 S5 TrainingRecordFeaturizer
++        # 做确定性 token 裁剪；推理由 inference._can_window/_encode_long_record
++        # 做相邻分窗与长度加权池化，尾部 token 不再静默丢失。
+         truncated = False
+-        if len(ids) > self.cfg.max_seq_len:
+-            # 超长 SMILES/PSMILES 与蛋白一致受统一序列上限约束（RoPE 表/max_seq_len）：
+-            # 保留 CLS 后截断尾部，审计标记 truncated。
+-            ids = ids[: self.cfg.max_seq_len]
+-            truncated = True
+         length = len(ids)
+         return FeaturizedRecord(
+             domain=domain,

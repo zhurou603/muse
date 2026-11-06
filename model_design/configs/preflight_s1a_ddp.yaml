@@ -1,0 +1,47 @@
+# 正式尺寸 8 卡 DDP preflight（S1a 语料、真实数据、骨架采样暂关——
+# 该开关只影响抽样分布，不影响模型/通信/显存/续训验证；骨架索引就绪后做最终确认）。
+schema_version: muse.pretrain.preflight.v1
+seed: 42
+stage: 1
+deterministic: true
+data:
+  sources: [pubchem, chembl, pi1m, uniref50, pdb, natural_uniref50, natural_pdb]
+  mtr_norm: data/pretrain/targets/mtr_norm.json
+  aux_targets: null
+  scaffold_sampling: true
+  unique_scaffolds: false
+  molecule3d: false
+  domain_weights:
+    small_molecule: 0.35
+    polymer: 0.20
+    bio: 0.45
+  temperature: 0.005
+model:
+  d_model: 1024
+  n_layers: 24
+  n_heads: 16
+  d_ffn: 2048
+  num_experts: 8
+  mole_every: 4
+  embed_dim: 1024
+  contrastive_dim: 256
+  descriptor_dim: 208
+  max_seq_len: 1024
+  dropout: 0.1
+training:
+  lr: 0.0001
+  warmup_steps: 5
+  total_steps: 24
+  micro_batch: 32
+  accumulation_steps: 2
+  bf16: true
+  grad_clip: 1.0
+  mlm: true
+  denoise: false
+  align_2d3d: false
+  log_interval: 1
+  checkpoint_interval: 12
+  prefetch: 4
+  weights:
+    mlm: 1.0
+    descriptor: 1.0

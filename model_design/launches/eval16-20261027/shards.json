@@ -1,0 +1,649 @@
+{
+  "train_cap": 200000,
+  "subsets": [
+    {
+      "key": "CATH/cath_domain",
+      "cost": 205469,
+      "train_raw": 590498,
+      "validation": 5469
+    },
+    {
+      "key": "GEOM-Drugs/rdkit_folder",
+      "cost": 205000,
+      "train_raw": 32315005,
+      "validation": 5000
+    },
+    {
+      "key": "QMugs/qmugs",
+      "cost": 205000,
+      "train_raw": 1961573,
+      "validation": 5000
+    },
+    {
+      "key": "OMC25/omc25",
+      "cost": 205000,
+      "train_raw": 25117577,
+      "validation": 5000
+    },
+    {
+      "key": "PEER/aav",
+      "cost": 204994,
+      "train_raw": 273788,
+      "validation": 4994
+    },
+    {
+      "key": "QM9/qm9",
+      "cost": 128885,
+      "train_raw": 123885,
+      "validation": 5000
+    },
+    {
+      "key": "PEER/solubility",
+      "cost": 66419,
+      "train_raw": 61419,
+      "validation": 5000
+    },
+    {
+      "key": "PEER/stability",
+      "cost": 63914,
+      "train_raw": 58914,
+      "validation": 5000
+    },
+    {
+      "key": "PEER/fluorescence",
+      "cost": 49025,
+      "train_raw": 44025,
+      "validation": 5000
+    },
+    {
+      "key": "dbaasp_v4/target_activity",
+      "cost": 43389,
+      "train_raw": 38559,
+      "validation": 4830
+    },
+    {
+      "key": "Aldeghi-Coley-Copolymer/vipea",
+      "cost": 38668,
+      "train_raw": 34370,
+      "validation": 4298
+    },
+    {
+      "key": "PEER/human_ppi",
+      "cost": 32597,
+      "train_raw": 28975,
+      "validation": 3622
+    },
+    {
+      "key": "PEER/thermostability",
+      "cost": 24741,
+      "train_raw": 21928,
+      "validation": 2813
+    },
+    {
+      "key": "PEER/pdbbind",
+      "cost": 15739,
+      "train_raw": 13986,
+      "validation": 1753
+    },
+    {
+      "key": "PEER/fold",
+      "cost": 14662,
+      "train_raw": 13033,
+      "validation": 1629
+    },
+    {
+      "key": "PEER/bindingdb",
+      "cost": 13962,
+      "train_raw": 12416,
+      "validation": 1546
+    },
+    {
+      "key": "PEER/subcellular_localization",
+      "cost": 12555,
+      "train_raw": 11161,
+      "validation": 1394
+    },
+    {
+      "key": "tdc_admet/cyp2d6_veith",
+      "cost": 11817,
+      "train_raw": 10503,
+      "validation": 1314
+    },
+    {
+      "key": "tdc_admet/cyp3a4_veith",
+      "cost": 11095,
+      "train_raw": 9863,
+      "validation": 1232
+    },
+    {
+      "key": "tdc_admet/cyp2c9_veith",
+      "cost": 10883,
+      "train_raw": 9674,
+      "validation": 1209
+    },
+    {
+      "key": "PolyGraphMT/CP_GC",
+      "cost": 10737,
+      "train_raw": 9545,
+      "validation": 1192
+    },
+    {
+      "key": "PEER/secondary_structure",
+      "cost": 10270,
+      "train_raw": 9129,
+      "validation": 1141
+    },
+    {
+      "key": "tdc_admet/solubility_aqsoldb",
+      "cost": 8984,
+      "train_raw": 7986,
+      "validation": 998
+    },
+    {
+      "key": "PEER/gb1",
+      "cost": 7860,
+      "train_raw": 6987,
+      "validation": 873
+    },
+    {
+      "key": "PEER/binary_localization",
+      "cost": 7762,
+      "train_raw": 6900,
+      "validation": 862
+    },
+    {
+      "key": "TransPolymer/PE_I",
+      "cost": 7585,
+      "train_raw": 6745,
+      "validation": 840
+    },
+    {
+      "key": "tdc_admet/ld50_zhu",
+      "cost": 6609,
+      "train_raw": 5874,
+      "validation": 735
+    },
+    {
+      "key": "tdc_admet/ames",
+      "cost": 6530,
+      "train_raw": 5805,
+      "validation": 725
+    },
+    {
+      "key": "PEER/yeast_ppi",
+      "cost": 4881,
+      "train_raw": 4339,
+      "validation": 542
+    },
+    {
+      "key": "PEER/beta_lactamase",
+      "cost": 4679,
+      "train_raw": 4160,
+      "validation": 519
+    },
+    {
+      "key": "tdc_admet/lipophilicity_astrazeneca",
+      "cost": 3780,
+      "train_raw": 3360,
+      "validation": 420
+    },
+    {
+      "key": "TransPolymer/Egc",
+      "cost": 2762,
+      "train_raw": 2424,
+      "validation": 338
+    },
+    {
+      "key": "PolyGraphMT/LUMO_DFT",
+      "cost": 2604,
+      "train_raw": 2317,
+      "validation": 287
+    },
+    {
+      "key": "PolyGraphMT/ETOTAL_DFT",
+      "cost": 2603,
+      "train_raw": 2314,
+      "validation": 289
+    },
+    {
+      "key": "PolyGraphMT/MU_DFT",
+      "cost": 2603,
+      "train_raw": 2315,
+      "validation": 288
+    },
+    {
+      "key": "PolyGraphMT/HOMO_DFT",
+      "cost": 2601,
+      "train_raw": 2310,
+      "validation": 291
+    },
+    {
+      "key": "PEER/ppi_affinity",
+      "cost": 2594,
+      "train_raw": 2308,
+      "validation": 286
+    },
+    {
+      "key": "PolyGraphMT/BANDGAP_DFT",
+      "cost": 2387,
+      "train_raw": 2097,
+      "validation": 290
+    },
+    {
+      "key": "PolyGraphMT/RG_MD",
+      "cost": 2250,
+      "train_raw": 2000,
+      "validation": 250
+    },
+    {
+      "key": "PolyGraphMT/TC_MD",
+      "cost": 1980,
+      "train_raw": 1763,
+      "validation": 217
+    },
+    {
+      "key": "PolyGraphMT/ALPHA_DFT",
+      "cost": 1816,
+      "train_raw": 1614,
+      "validation": 202
+    },
+    {
+      "key": "tdc_admet/bbb_martins",
+      "cost": 1778,
+      "train_raw": 1580,
+      "validation": 198
+    },
+    {
+      "key": "PolyGraphMT/RHO_MD",
+      "cost": 1741,
+      "train_raw": 1548,
+      "validation": 193
+    },
+    {
+      "key": "tdc_admet/ppbr_az",
+      "cost": 1617,
+      "train_raw": 1444,
+      "validation": 173
+    },
+    {
+      "key": "tdc_admet/pgp_broccatelli",
+      "cost": 1091,
+      "train_raw": 970,
+      "validation": 121
+    },
+    {
+      "key": "tdc_admet/vdss_lombardo",
+      "cost": 1002,
+      "train_raw": 892,
+      "validation": 110
+    },
+    {
+      "key": "TransPolymer/OPV",
+      "cost": 1002,
+      "train_raw": 888,
+      "validation": 114
+    },
+    {
+      "key": "tdc_admet/clearance_microsome_az",
+      "cost": 992,
+      "train_raw": 882,
+      "validation": 110
+    },
+    {
+      "key": "Polymer-Genome-2016/DFT-HSE06",
+      "cost": 964,
+      "train_raw": 857,
+      "validation": 107
+    },
+    {
+      "key": "Polymer-Genome-2016/DFT-rPW86",
+      "cost": 964,
+      "train_raw": 857,
+      "validation": 107
+    },
+    {
+      "key": "tdc_admet/clearance_hepatocyte_az",
+      "cost": 920,
+      "train_raw": 822,
+      "validation": 98
+    },
+    {
+      "key": "PolyGraphMT/BULK_MD",
+      "cost": 898,
+      "train_raw": 799,
+      "validation": 99
+    },
+    {
+      "key": "PolyGraphMT/SHEAR_MD",
+      "cost": 895,
+      "train_raw": 796,
+      "validation": 99
+    },
+    {
+      "key": "PolyGraphMT/POISSON_MD",
+      "cost": 893,
+      "train_raw": 792,
+      "validation": 101
+    },
+    {
+      "key": "PolyGraphMT/YOUNG_MD",
+      "cost": 893,
+      "train_raw": 794,
+      "validation": 99
+    },
+    {
+      "key": "tdc_admet/caco2_wang",
+      "cost": 816,
+      "train_raw": 725,
+      "validation": 91
+    },
+    {
+      "key": "PolyGraphMT/TD_MD",
+      "cost": 720,
+      "train_raw": 641,
+      "validation": 79
+    },
+    {
+      "key": "PolyGraphMT/DC_MD",
+      "cost": 666,
+      "train_raw": 592,
+      "validation": 74
+    },
+    {
+      "key": "PolyGraphMT/PE_MD",
+      "cost": 665,
+      "train_raw": 591,
+      "validation": 74
+    },
+    {
+      "key": "PolyGraphMT/RI_MD",
+      "cost": 665,
+      "train_raw": 592,
+      "validation": 73
+    },
+    {
+      "key": "PolyGraphMT/VISC_MD",
+      "cost": 633,
+      "train_raw": 563,
+      "validation": 70
+    },
+    {
+      "key": "PolyGraphMT/DIF_MD",
+      "cost": 628,
+      "train_raw": 558,
+      "validation": 70
+    },
+    {
+      "key": "tdc_admet/cyp3a4_substrate_carbonmangels",
+      "cost": 601,
+      "train_raw": 535,
+      "validation": 66
+    },
+    {
+      "key": "tdc_admet/cyp2c9_substrate_carbonmangels",
+      "cost": 600,
+      "train_raw": 534,
+      "validation": 66
+    },
+    {
+      "key": "tdc_admet/half_life_obach",
+      "cost": 599,
+      "train_raw": 534,
+      "validation": 65
+    },
+    {
+      "key": "tdc_admet/cyp2d6_substrate_carbonmangels",
+      "cost": 598,
+      "train_raw": 532,
+      "validation": 66
+    },
+    {
+      "key": "tdc_admet/herg",
+      "cost": 582,
+      "train_raw": 516,
+      "validation": 66
+    },
+    {
+      "key": "moleculenet/freesolv",
+      "cost": 578,
+      "train_raw": 514,
+      "validation": 64
+    },
+    {
+      "key": "tdc_admet/bioavailability_ma",
+      "cost": 576,
+      "train_raw": 512,
+      "validation": 64
+    },
+    {
+      "key": "tdc_admet/hia_hou",
+      "cost": 521,
+      "train_raw": 464,
+      "validation": 57
+    },
+    {
+      "key": "tdc_admet/dili",
+      "cost": 428,
+      "train_raw": 381,
+      "validation": 47
+    },
+    {
+      "key": "TransPolymer/Egb",
+      "cost": 392,
+      "train_raw": 336,
+      "validation": 56
+    },
+    {
+      "key": "TransPolymer/Xc",
+      "cost": 389,
+      "train_raw": 346,
+      "validation": 43
+    },
+    {
+      "key": "TransPolymer/EPS",
+      "cost": 344,
+      "train_raw": 306,
+      "validation": 38
+    },
+    {
+      "key": "TransPolymer/Nc",
+      "cost": 344,
+      "train_raw": 306,
+      "validation": 38
+    },
+    {
+      "key": "TransPolymer/Ei",
+      "cost": 333,
+      "train_raw": 296,
+      "validation": 37
+    },
+    {
+      "key": "TransPolymer/Eea",
+      "cost": 332,
+      "train_raw": 296,
+      "validation": 36
+    },
+    {
+      "key": "TransPolymer/PE_II",
+      "cost": 243,
+      "train_raw": 216,
+      "validation": 27
+    }
+  ],
+  "shards": [
+    {
+      "name": "s00",
+      "subsets": [
+        "CATH/cath_domain"
+      ],
+      "cost": 205469
+    },
+    {
+      "name": "s01",
+      "subsets": [
+        "GEOM-Drugs/rdkit_folder"
+      ],
+      "cost": 205000
+    },
+    {
+      "name": "s02",
+      "subsets": [
+        "QMugs/qmugs"
+      ],
+      "cost": 205000
+    },
+    {
+      "name": "s03",
+      "subsets": [
+        "OMC25/omc25"
+      ],
+      "cost": 205000
+    },
+    {
+      "name": "s04",
+      "subsets": [
+        "PEER/aav"
+      ],
+      "cost": 204994
+    },
+    {
+      "name": "s05",
+      "subsets": [
+        "QM9/qm9"
+      ],
+      "cost": 128885
+    },
+    {
+      "name": "s06",
+      "subsets": [
+        "PEER/solubility"
+      ],
+      "cost": 66419
+    },
+    {
+      "name": "s07",
+      "subsets": [
+        "PEER/stability"
+      ],
+      "cost": 63914
+    },
+    {
+      "name": "s08",
+      "subsets": [
+        "PEER/fluorescence",
+        "tdc_admet/clearance_hepatocyte_az",
+        "PolyGraphMT/PE_MD",
+        "tdc_admet/herg"
+      ],
+      "cost": 51192
+    },
+    {
+      "name": "s09",
+      "subsets": [
+        "dbaasp_v4/target_activity",
+        "TransPolymer/Egc",
+        "PolyGraphMT/TC_MD",
+        "TransPolymer/OPV",
+        "PolyGraphMT/POISSON_MD",
+        "PolyGraphMT/DIF_MD",
+        "tdc_admet/bioavailability_ma"
+      ],
+      "cost": 51230
+    },
+    {
+      "name": "s10",
+      "subsets": [
+        "Aldeghi-Coley-Copolymer/vipea",
+        "PEER/yeast_ppi",
+        "PolyGraphMT/MU_DFT",
+        "PolyGraphMT/ALPHA_DFT",
+        "tdc_admet/pgp_broccatelli",
+        "PolyGraphMT/BULK_MD",
+        "PolyGraphMT/RI_MD",
+        "moleculenet/freesolv"
+      ],
+      "cost": 51200
+    },
+    {
+      "name": "s11",
+      "subsets": [
+        "PEER/human_ppi",
+        "PEER/gb1",
+        "PEER/beta_lactamase",
+        "PEER/ppi_affinity",
+        "tdc_admet/ppbr_az",
+        "tdc_admet/caco2_wang",
+        "tdc_admet/half_life_obach",
+        "TransPolymer/Xc",
+        "TransPolymer/Eea"
+      ],
+      "cost": 51483
+    },
+    {
+      "name": "s12",
+      "subsets": [
+        "PEER/thermostability",
+        "tdc_admet/cyp2c9_veith",
+        "PEER/binary_localization",
+        "tdc_admet/lipophilicity_astrazeneca",
+        "PolyGraphMT/RHO_MD",
+        "Polymer-Genome-2016/DFT-rPW86",
+        "PolyGraphMT/DC_MD",
+        "tdc_admet/cyp2d6_substrate_carbonmangels",
+        "TransPolymer/Ei"
+      ],
+      "cost": 51468
+    },
+    {
+      "name": "s13",
+      "subsets": [
+        "PEER/pdbbind",
+        "tdc_admet/cyp3a4_veith",
+        "tdc_admet/solubility_aqsoldb",
+        "TransPolymer/PE_I",
+        "PolyGraphMT/ETOTAL_DFT",
+        "PolyGraphMT/RG_MD",
+        "tdc_admet/clearance_microsome_az",
+        "PolyGraphMT/YOUNG_MD",
+        "tdc_admet/cyp2c9_substrate_carbonmangels",
+        "TransPolymer/Egb",
+        "TransPolymer/Nc"
+      ],
+      "cost": 51477
+    },
+    {
+      "name": "s14",
+      "subsets": [
+        "PEER/fold",
+        "tdc_admet/cyp2d6_veith",
+        "PolyGraphMT/CP_GC",
+        "tdc_admet/ames",
+        "PolyGraphMT/HOMO_DFT",
+        "tdc_admet/bbb_martins",
+        "tdc_admet/vdss_lombardo",
+        "PolyGraphMT/SHEAR_MD",
+        "PolyGraphMT/VISC_MD",
+        "tdc_admet/hia_hou",
+        "TransPolymer/PE_II"
+      ],
+      "cost": 51419
+    },
+    {
+      "name": "s15",
+      "subsets": [
+        "PEER/bindingdb",
+        "PEER/subcellular_localization",
+        "PEER/secondary_structure",
+        "tdc_admet/ld50_zhu",
+        "PolyGraphMT/LUMO_DFT",
+        "PolyGraphMT/BANDGAP_DFT",
+        "Polymer-Genome-2016/DFT-HSE06",
+        "PolyGraphMT/TD_MD",
+        "tdc_admet/cyp3a4_substrate_carbonmangels",
+        "tdc_admet/dili",
+        "TransPolymer/EPS"
+      ],
+      "cost": 51444
+    }
+  ]
+}

@@ -1,0 +1,92 @@
+--- parallel_dashboard.py (original)
++++ parallel_dashboard.py (candidate)
+@@ -30,6 +30,7 @@
+ CACHE_SCHEMA = "muse.parallel_dashboard.cache.v1"
+ _ENCODER = None
+ _ENCODER_CHECKPOINT = None
++_ENCODING_DEVICE = None
+ 
+ 
+ def _fingerprint_value(value: Any) -> Any:
+@@ -276,6 +277,8 @@
+ 
+ def _encoding_job(job):
+     (index, raw, checkpoint_path, device, cache_path, key, batch_size, token_level) = job
++    if _ENCODING_DEVICE is not None:
++        device = _ENCODING_DEVICE
+     started = time.monotonic()
+     ids = [record["id"] for record in raw]
+     items = _read_cache(cache_path, key, ids)
+@@ -297,7 +300,12 @@
+     return index, encoded, cache_hit, time.monotonic() - started
+ 
+ 
+-def _parallel_map(function, jobs, processes: int):
++def _init_encoding_worker(device_queue):
++    global _ENCODING_DEVICE
++    _ENCODING_DEVICE = device_queue.get(timeout=30)
++
++
++def _parallel_map(function, jobs, processes: int, *, devices=None):
+     jobs = list(jobs)
+     total = len(jobs)
+     interval = max(1, total // 20)
+@@ -308,6 +316,12 @@
+             print(f"[fast-eval] {function.__name__}: completed={completed}/{total} "
+                   f"elapsed={time.monotonic() - started:.1f}s", flush=True)
+ 
++    if devices is not None:
++        devices = tuple(devices)
++        if len(devices) != processes or len(set(devices)) != processes:
++            raise ValueError("Encoding workers require one distinct device each")
++    if not jobs:
++        return []
+     if processes == 1:
+         results = []
+         for completed, job in enumerate(jobs, start=1):
+@@ -316,10 +330,30 @@
+         return results
+     results = []
+     context = mp.get_context("spawn")
+-    with context.Pool(processes=processes) as pool:
+-        for completed, result in enumerate(pool.imap_unordered(function, jobs, chunksize=1), start=1):
+-            results.append(result)
+-            report(completed)
++    device_queue = None
++    options = {}
++    if devices is not None:
++        device_queue = context.Queue()
++        for device in devices:
++            device_queue.put(device)
++        options = {"initializer": _init_encoding_worker, "initargs": (device_queue,)}
++    try:
++        with context.Pool(processes=processes, **options) as pool:
++            workers = list(pool._pool)
++            iterator = pool.imap_unordered(function, jobs, chunksize=1)
++            while len(results) < total:
++                if devices is not None and any(not worker.is_alive() for worker in workers):
++                    raise RuntimeError("Encoding worker exited; refusing silent worker replacement")
++                try:
++                    result = iterator.next(timeout=1)
++                except mp.TimeoutError:
++                    continue
++                results.append(result)
++                report(len(results))
++    finally:
++        if device_queue is not None:
++            device_queue.close()
++            device_queue.join_thread()
+     return results
+ 
+ 
+@@ -418,7 +452,9 @@
+             batch_size, token_level,
+         ))
+     if encoding_jobs:
+-        parts = _parallel_map(_encoding_job, encoding_jobs, min(len(devices), len(encoding_jobs)))
++        worker_count = min(len(devices), len(encoding_jobs))
++        parts = _parallel_map(_encoding_job, encoding_jobs, worker_count,
++                              devices=devices[:worker_count])
+         encoded, prepared_hits = _merge_encoded(parts, cfg.embed_dim, normalization_errors)
+     else:
+         encoded = D.EncodedSplit([], np.empty((0, cfg.embed_dim), dtype=np.float32),

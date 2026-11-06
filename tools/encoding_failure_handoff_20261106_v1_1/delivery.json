@@ -1,0 +1,8 @@
+{
+  "root": "/yinghepool/tech-dcu/zhaoyao/tools/encoding_failure_handoff_20261106_v1_1",
+  "archive": "/yinghepool/tech-dcu/zhaoyao/tools/encoding_failure_handoff_20261106_v1_1.zip",
+  "archive_sha256": "c2ca6898a1d55daf3195d5f8dd1f9f16ec98bcbbb60d1c7ecbd434af8e6dab60",
+  "files": 1461,
+  "verified_failures": 1846,
+  "archive_crc_and_payload_hashes_verified": true
+}

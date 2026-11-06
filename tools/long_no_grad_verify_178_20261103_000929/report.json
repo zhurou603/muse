@@ -1,0 +1,11 @@
+{
+  "status": "failed",
+  "scope": "3 historical long failures + 1 short control; no training or production cache",
+  "production_sha256": "99d22c6c8f3f0f3f3954043f2f6b6f3dc4c30901a7d3a483095c7bb44a4f30b3",
+  "candidate_sha256": "ea0cf8245dbb97d4b2a2ea2ff63af89dc0ab81ffd99b7a9d3de4aab84cc7e34c",
+  "sample_file_sha256": "a9079df93145d7c07cc00f8886cf433a4faa299ec570f3037a74ed68087e47a6",
+  "checkpoint": "/yinghepool/tech-dcu/zhaoyao/model_design/runs/s3-residual-pilot-02/checkpoints/final.pt",
+  "checkpoint_sha256": "38a4104c2a7963a2e2636af3f8398830515c17784118c55991ccfdd87400cbee",
+  "samples": [],
+  "error": "ValueError: Checkpoint identity differs"
+}

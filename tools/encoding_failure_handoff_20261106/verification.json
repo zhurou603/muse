@@ -1,0 +1,33 @@
+{
+  "schema_version": "muse.encoding_failure_reproduction.v1",
+  "selected": 1846,
+  "reproduced": 1846,
+  "not_reproduced": [],
+  "by_dataset": {
+    "GEOM-Drugs": {
+      "total": 374,
+      "reproduced": 374
+    },
+    "PEER": {
+      "total": 394,
+      "reproduced": 394
+    },
+    "PolyGraphMT": {
+      "total": 1,
+      "reproduced": 1
+    },
+    "QM9": {
+      "total": 1070,
+      "reproduced": 1070
+    },
+    "dbaasp_v4": {
+      "total": 5,
+      "reproduced": 5
+    },
+    "tdc_admet": {
+      "total": 2,
+      "reproduced": 2
+    }
+  },
+  "source_total_failures": 1846
+}

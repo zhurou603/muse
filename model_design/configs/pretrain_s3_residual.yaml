@@ -1,0 +1,69 @@
+schema_version: muse.pretrain.s3.element-residual.v1
+seed: 42
+stage: 3
+deterministic: true
+data:
+  sources:
+  - pubchem
+  - chembl
+  - pi1m
+  - uniref50
+  - pdb
+  - natural_uniref50
+  - natural_pdb
+  - omc25
+  mtr_norm: data/pretrain/targets/mtr_norm.json
+  aux_targets: data/pretrain/targets/aux_targets.json
+  scaffold_sampling: true
+  unique_scaffolds: false
+  source_grouped: true
+  molecule3d: false
+  domain_weights:
+    small_molecule: 0.10
+    polymer: 0.05
+    bio: 0.10
+    crystal: 0.75
+  temperature: 0.005
+  crystal:
+    cache_dir: data/pretrain/cache/omc25_frames
+    stats: data/pretrain/targets/omc25_residual_frame_stats.json
+    element_references: data/pretrain/targets/omc25_element_references.json
+    sample_jsonl: data/pretrain/index/omc25.sample.jsonl
+    suggested_exclude_heaps: data/pretrain/audit/omc25-parent-recovery/suggested_exclude_heaps.jsonl
+    parent_recovery: data/pretrain/audit/omc25-parent-recovery/train.heap_recovery.jsonl
+model:
+  d_model: 1024
+  n_layers: 24
+  n_heads: 16
+  d_ffn: 2048
+  num_experts: 8
+  mole_every: 4
+  embed_dim: 1024
+  contrastive_dim: 256
+  descriptor_dim: 208
+  max_seq_len: 1024
+  dropout: 0.1
+  conservative_force: false
+  crystal_composition_features: true
+  crystal_composition_scale: 128.0
+training:
+  lr: 0.0001
+  warmup_steps: 300
+  total_steps: 8000
+  micro_batch: 32
+  accumulation_steps: 4
+  log_interval: 50
+  checkpoint_interval: 500
+  grad_clip: 1.0
+  bf16: true
+  prefetch: 4
+  mlm: true
+  denoise: false
+  align_2d3d: false
+  weights:
+    mlm: 1.0
+    descriptor: 1.0
+    aux: 1.0
+    energy: 10.0
+    force: 30.0
+    stress: 0.0

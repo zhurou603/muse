@@ -1,0 +1,154 @@
+schema_version: muse.pretrain.acceptance.v1
+seed: 42
+status_values: [pending, in_progress, verified, blocked]
+formal_defaults:
+  from_scratch: true
+  embed_dim: 1024
+  effective_batch: 2048
+  optimizer: adamw
+  learning_rate: 0.0001
+  warmup_steps: 10000
+  schedule: cosine
+  grad_clip: 1.0
+  bf16: true
+  scaffold_temperature: 0.005
+  omc25_target_frames: 7000000
+  omc25_z_threshold: 10.0
+  s4_domain_weights:
+    small_molecule: 0.40
+    crystal: 0.25
+    bio: 0.20
+    polymer: 0.15
+requirements:
+  - id: data.external_corpora
+    status: in_progress
+    evidence: [data/pretrain/manifest/data_manifest.jsonl]
+  - id: data.pubchem_descriptors
+    status: verified
+    evidence: [data/pretrain/descriptors/pubchem.desc.f32.npy, data/pretrain/descriptors/pubchem.keys.txt, data/pretrain/descriptors/pubchem.norm.json]
+  - id: data.formal_mtr_norm
+    status: verified
+    evidence: [data/pretrain/targets/mtr_norm.json]
+  - id: data.natural_peptides_le50
+    status: in_progress
+    evidence: [data/pretrain/index/natural_peptides.stats.json]
+  - id: data.aux_exclusions
+    status: verified
+    evidence: [data/pretrain/audit, data/pretrain/targets/aux_targets.json]
+  - id: data.shadow_properties_excluded
+    status: verified
+    evidence: [data/pretrain/manifest/shadow_properties.json, data/pretrain/targets/aux_targets.json]
+  - id: data.qm9_qmugs_geom_3d
+    status: verified
+    evidence: [data/pretrain/index/molecule3d]
+  - id: data.unique_3d_40m
+    status: pending
+    evidence: [data/pretrain/manifest/official_assets.json]
+  - id: data.scaffold_sampling
+    status: pending
+    evidence: [data/pretrain/index]
+  - id: data.omc25_parent_triple_audit
+    status: verified
+    evidence: [data/pretrain/audit/omc25-parent-recovery/summary.json, data/pretrain/audit/omc25-parent-recovery/prior_exclusions.jsonl]
+  - id: data.omc25_7m_cache_stats
+    status: verified
+    evidence: [data/pretrain/index/omc25.sample.jsonl.report.json, data/pretrain/cache/omc25_frames/manifest.json, data/pretrain/targets/omc25_frame_stats.json]
+  - id: data.throughput_and_1000_structure_review
+    status: pending
+    evidence: [data/pretrain/audit]
+  - id: mask.sequence_15_80_10_10
+    status: verified
+    evidence: [model_design/tests/test_masking.py]
+  - id: mask.atom_15_and_feature_sync
+    status: verified
+    evidence: [model_design/tests/test_batching.py]
+  - id: mask.peptide_30_40_30_strict
+    status: verified
+    evidence: [model_design/tests/test_masking.py, data/pretrain/audit/cycpept.stats.json]
+  - id: mask.denoise_sigma_noise_pair_drop
+    status: verified
+    evidence: [model_design/tests/test_batching.py]
+  - id: preprocess.pi1m_five_views_dummy_atom
+    status: verified
+    evidence: [data/pretrain/index/pi1m_views.json]
+  - id: preprocess.protein_crop_seed
+    status: pending
+    evidence: [model_design/tests/test_corpora.py]
+  - id: preprocess.copolymer_composition_block_diagonal
+    status: pending
+    evidence: [model_design/tests/test_featurize.py]
+  - id: preprocess.pbc_reference_and_truncation
+    status: pending
+    evidence: [model_design/tests/test_featurize.py, data/pretrain/audit]
+  - id: preprocess.strict_no_fallback
+    status: in_progress
+    evidence: [model_design/muse_encoder/pretrain/dataset.py]
+  - id: train.real_3d_and_crystal_sources
+    status: in_progress
+    evidence: [model_design/muse_encoder/pretrain/run_pretrain.py]
+  - id: train.a_train_90_tasks_max_5pct
+    status: in_progress
+    evidence: [model_design/muse_encoder/pretrain/a_train.py]
+  - id: train.deterministic_microbatch_seed
+    status: verified
+    evidence: [model_design/muse_encoder/pretrain/run_pretrain.py]
+  - id: train.curriculum_configs
+    status: pending
+    evidence: [model_design/configs]
+  - id: train.mole_health
+    status: pending
+    evidence: [model_design/runs]
+  - id: gate.unit_and_demo
+    status: pending
+    evidence: [model_design/runs/formal-preflight]
+  - id: gate.small_100_step_bitwise_resume
+    status: pending
+    evidence: [model_design/runs/formal-preflight]
+  - id: gate.real_four_domain_forward_backward
+    status: pending
+    evidence: [model_design/runs/formal-preflight]
+  - id: gate.full_size_ddp_resume_throughput
+    status: verified
+    evidence: [model_design/runs/formal-preflight, data/pretrain/logs/preflight_ddp24.log]
+  - id: gate.random_full_13x90_dashboard
+    status: pending
+    evidence: [model_design/runs/formal-preflight]
+  - id: gate.baselines_and_shadow
+    status: pending
+    evidence: [model_design/runs/formal-preflight]
+  - id: ablation.s1_mtr_and_peptide_curriculum
+    status: pending
+    evidence: [model_design/runs]
+  - id: ablation.s2_align_and_energy_norm
+    status: pending
+    evidence: [model_design/runs]
+  - id: ablation.s3_force_energy_ratio
+    status: pending
+    evidence: [model_design/runs]
+  - id: ablation.s4_a_train_and_pooling
+    status: pending
+    evidence: [model_design/runs]
+  - id: formal.s1a
+    status: in_progress
+    evidence: [model_design/runs/formal-s1a, data/pretrain/logs/formal_s1a.log]
+  - id: formal.s1b
+    status: pending
+    evidence: [model_design/runs/formal-s1b]
+  - id: formal.s2
+    status: pending
+    evidence: [model_design/runs/formal-s2]
+  - id: formal.s3_direct
+    status: pending
+    evidence: [model_design/runs/formal-s3-direct]
+  - id: formal.s3_conservative
+    status: pending
+    evidence: [model_design/runs/formal-s3-conservative]
+  - id: formal.s4
+    status: pending
+    evidence: [model_design/runs/formal-s4]
+  - id: delivery.reproduction_and_frozen_checkpoint
+    status: pending
+    evidence: [reproduction]
+  - id: delivery.offline_inference_and_final_dashboard
+    status: pending
+    evidence: [model_design/runs/formal-final]

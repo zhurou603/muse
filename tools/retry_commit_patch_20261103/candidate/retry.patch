@@ -1,0 +1,51 @@
+--- parallel_dashboard.py (deployed)
++++ parallel_dashboard.py (candidate)
+@@ -218,6 +218,9 @@
+     def encode_chunk(chunk_raw, chunk_items):
+         if not chunk_raw:
+             return
++        pending_ids = []
++        pending_embeddings = []
++        pending_tokens = []
+         try:
+             for item in chunk_items:
+                 if item["error"] is not None:
+@@ -231,10 +234,10 @@
+                     expected = _expected_tokens(raw_record, record)
+                     if token_level and len(tokens) != expected:
+                         raise RuntimeError(f"{raw_record['id']}: 长序列 token 数不符")
+-                    ok_ids.append(raw_record["id"])
+-                    embeddings.append(np.asarray(embedding, dtype=np.float32))
++                    pending_ids.append(raw_record["id"])
++                    pending_embeddings.append(np.asarray(embedding, dtype=np.float32))
+                     if token_level:
+-                        token_chunks.append(tokens)
++                        pending_tokens.append(tokens)
+                 else:
+                     regular.append((raw_record, record))
+             if regular:
+@@ -246,10 +249,10 @@
+                     token_out = _token_output(record, tokens[index]) if token_level else None
+                     if token_level and len(token_out) != _expected_tokens(raw_record, record):
+                         raise RuntimeError(f"{raw_record['id']}: token 数不符")
+-                    ok_ids.append(raw_record["id"])
+-                    embeddings.append(np.asarray(graph[index], dtype=np.float32))
++                    pending_ids.append(raw_record["id"])
++                    pending_embeddings.append(np.asarray(graph[index], dtype=np.float32))
+                     if token_level:
+-                        token_chunks.append(token_out)
++                        pending_tokens.append(token_out)
+         except Exception as exc:
+             if len(chunk_raw) == 1:
+                 failed.append({"id": str(chunk_raw[0]["id"]), "error": str(exc)[:500]})
+@@ -257,6 +260,10 @@
+             middle = len(chunk_raw) // 2
+             encode_chunk(chunk_raw[:middle], chunk_items[:middle])
+             encode_chunk(chunk_raw[middle:], chunk_items[middle:])
++        else:
++            ok_ids.extend(pending_ids)
++            embeddings.extend(pending_embeddings)
++            token_chunks.extend(pending_tokens)
+ 
+     encode_chunk(raw, items)
+     embedding_array = (np.stack(embeddings).astype(np.float32) if embeddings

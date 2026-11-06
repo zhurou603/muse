@@ -1,0 +1,47 @@
+schema_version: muse.s4.polymer_electronic_consolidation.v1
+run_name: s4-overnight-polymer-electronic-consolidation-v1
+seed: 42
+stage: 4
+deterministic: true
+init_checkpoint: model_design/runs/stage2-dbaasp-expanded-300/checkpoints/final.pt
+init_checkpoint_sha256: d6254aec6941d19aa1bae0a9d19d5a3ca4b39f1aa9854f4ac9a269f14fbe1046
+max_steps: 300
+evaluate_steps: [0, 50, 100, 200, 300]
+optimizer: AdamW
+learning_rate: 1.0e-5
+auxiliary_head_learning_rate: 1.0e-4
+weight_decay: 0.01
+warmup_ratio: 0.05
+warmup_steps: 15
+scheduler: linear_decay
+grad_clip_norm: 1.0
+effective_batch_size: 64
+micro_batch: 16
+bf16: true
+log_interval: 10
+checkpoint_interval: 50
+prefetch: 4
+group_weights:
+  polymer: 0.75
+  biomacromolecule: 0.15
+  small_molecule: 0.10
+  organic_crystal: 0.0
+loss:
+  regression_normalization: train-only per-task median/MAD with std-or-1 fallback
+  regression: Huber
+  huber_beta: 1.0
+  within_source_task_aggregation: equal mean
+small_molecule_replay: existing 2D inputs with quantum/energy labels; no new 3D alignment pipeline
+control:
+  definition: no A-train or aux task labels; existing domain-matched MLM/input-derived replay
+  same_parent: true
+  same_architecture: true
+  same_optimizer: true
+  same_steps: true
+external_data: false
+new_external_data: false
+uses_existing_replay_corpora: true
+architecture_change: false
+tokenizer_change: false
+crystal_training: false
+validation_test_labels_used: false

@@ -1,0 +1,112 @@
+--- deployed/parallel_dashboard.py
++++ candidate/parallel_dashboard.py
+@@ -393,6 +393,37 @@
+     return D.EncodedSplit(ids, embedding_array, token_array, offsets, failed), prepared_hits
+ 
+ 
++def _validate_encoded_cache(encoded, ids, embed_dim, token_level, *, require_complete=False):
++    success = encoded.ids
++    failures = [item["id"] for item in encoded.failed]
++    if (len(ids) != len(set(ids)) or len(success) != len(set(success))
++            or len(failures) != len(set(failures)) or set(success) & set(failures)
++            or set(success) | set(failures) != set(ids)):
++        raise ValueError("特征缓存ID重复、缺失或成功失败重叠")
++    if any(not isinstance(item.get("error"), str) or not item["error"] for item in encoded.failed):
++        raise ValueError("特征缓存失败原因缺失")
++    if require_complete and failures:
++        raise ValueError("完整特征缓存包含失败记录")
++    if (not isinstance(encoded.embeddings, np.ndarray)
++            or encoded.embeddings.shape != (len(success), embed_dim)
++            or not np.isfinite(encoded.embeddings).all()):
++        raise ValueError("特征缓存embedding形状或数值无效")
++    if not token_level:
++        if encoded.tokens is not None or encoded.offsets is not None:
++            raise ValueError("特征缓存token模式不匹配")
++        return
++    if not success and encoded.tokens is None and encoded.offsets is None:
++        return
++    if (not isinstance(encoded.tokens, np.ndarray) or encoded.tokens.ndim != 2
++            or encoded.tokens.shape[1] != embed_dim or not np.isfinite(encoded.tokens).all()
++            or not isinstance(encoded.offsets, np.ndarray)
++            or encoded.offsets.shape != (len(success) + 1,)
++            or not np.issubdtype(encoded.offsets.dtype, np.integer)
++            or encoded.offsets[0] != 0 or encoded.offsets[-1] != len(encoded.tokens)
++            or (np.diff(encoded.offsets) < 0).any()):
++        raise ValueError("特征缓存token/offsets不对齐或数值无效")
++
++
+ def encode_records_parallel(
+         records: Sequence[Mapping[str, Any]], *, checkpoint_path: Path,
+         checkpoint_sha: str, cfg, cache_root: Path, external_base: Path,
+@@ -424,6 +455,8 @@
+     }
+     central_key = _digest(central_payload)
+     ids = [record["id"] for record in records]
++    if len(ids) != len(set(ids)):
++        raise ValueError("输入ID重复，不能按ID复用特征")
+     central_path = _cache_path(cache_root, "embeddings", namespace, central_key)
+     cached = _read_cache(central_path, central_key, ids)
+     if cached is None:
+@@ -431,11 +464,28 @@
+         legacy_path = _cache_path(cache_root, "embeddings", namespace, legacy_key)
+         cached = _read_cache(legacy_path, legacy_key, ids)
+         if cached is not None:
++            _validate_encoded_cache(cached, ids, cfg.embed_dim, token_level, require_complete=True)
+             _write_cache(central_path, central_key, ids, cached)
+     if cached is not None:
++        _validate_encoded_cache(cached, ids, cfg.embed_dim, token_level, require_complete=True)
+         print(f"[fast-eval] {namespace}: central embedding cache hit", flush=True)
+         return cached, {"central_hit": True, "normalization_hits": len(raw_batches),
+                         "prepared_hits": len(raw_batches)}
++
++    partial_path = _cache_path(cache_root, "embedding_progress_v1", namespace, central_key)
++    partial = _read_cache(partial_path, central_key, ids)
++    reused_ids = set()
++    if partial is not None:
++        _validate_encoded_cache(partial, ids, cfg.embed_dim, token_level)
++        if not partial.ids or not partial.failed:
++            raise ValueError("部分特征缓存必须同时包含成功和失败记录")
++        reused_ids = set(partial.ids)
++        remaining = [record for record in records if record["id"] not in reused_ids]
++        raw_batches = [remaining[start:start + batch_size]
++                       for start in range(0, len(remaining), batch_size)]
++        normalization_keys = [_normalization_key(batch, external_base, data_version)
++                              for batch in raw_batches]
++        print(f"[fast-eval] {namespace}: reuse={len(reused_ids)} retry={len(remaining)}", flush=True)
+ 
+     jobs = [
+         (index, batch, external_base, external_cache,
+@@ -474,10 +524,33 @@
+         encoded = D.EncodedSplit([], np.empty((0, cfg.embed_dim), dtype=np.float32),
+                                  None, None, normalization_errors)
+         prepared_hits = 0
++    pending_ids = [record["id"] for record in records if record["id"] not in reused_ids]
++    _validate_encoded_cache(encoded, pending_ids, cfg.embed_dim, token_level)
++    if partial is not None:
++        retained = D.EncodedSplit(partial.ids, partial.embeddings, partial.tokens, partial.offsets, [])
++        encoded, _ = _merge_encoded([(0, retained, 0, 0), (1, encoded, 0, 0)], cfg.embed_dim, [])
++        rows = {record_id: index for index, record_id in enumerate(encoded.ids)}
++        ordered_ids = [record_id for record_id in ids if record_id in rows]
++        if ordered_ids != encoded.ids:
++            order = [rows[record_id] for record_id in ordered_ids]
++            encoded.embeddings = encoded.embeddings[order]
++            if encoded.tokens is not None:
++                chunks = [encoded.tokens[encoded.offsets[index]:encoded.offsets[index + 1]]
++                          for index in order]
++                encoded.tokens = np.concatenate(chunks, axis=0)
++                encoded.offsets = np.zeros(len(chunks) + 1, dtype=np.int64)
++                encoded.offsets[1:] = np.cumsum([len(chunk) for chunk in chunks])
++            encoded.ids = ordered_ids
++    _validate_encoded_cache(encoded, ids, cfg.embed_dim, token_level)
+     if not encoded.failed:
+         _write_cache(central_path, central_key, ids, encoded)
++    elif encoded.ids:
++        _write_cache(partial_path, central_key, ids, encoded)
+     stats = {
+         "central_hit": False,
++        "partial_hit": partial is not None,
++        "reused_embedding_rows": len(reused_ids),
++        "retried_records": len(pending_ids) if partial is not None else 0,
+         "normalization_hits": normalization_hits,
+         "normalization_batches": len(raw_batches),
+         "prepared_hits": prepared_hits,

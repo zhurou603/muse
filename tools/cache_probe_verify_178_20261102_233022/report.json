@@ -1,0 +1,48 @@
+{
+  "status": "completed",
+  "rows": 32,
+  "checkpoint": "/yinghepool/tech-dcu/zhaoyao/model_design/runs/s3-residual-pilot-02/checkpoints/final.pt",
+  "checkpoint_sha256": "38a4104c2a7963a2e2636af3f8398830515c17784118c55991ccfdd87400cbee",
+  "production_sha256": "2f3e3dcdd8c550a014f7ca696697809eb26f1f0b2a16c7270bdede66e6bfe1d6",
+  "candidate_sha256": "99d22c6c8f3f0f3f3954043f2f6b6f3dc4c30901a7d3a483095c7bb44a4f30b3",
+  "scope": "32 records; isolated cache; no head training or production change",
+  "original": {
+    "central_hit": false,
+    "normalization_hits": 0,
+    "normalization_batches": 8,
+    "prepared_hits": 0,
+    "prepared_batches": 8,
+    "model_loads": 1,
+    "forward_calls": 8
+  },
+  "migration": {
+    "central_hit": true,
+    "normalization_hits": 8,
+    "prepared_hits": 8,
+    "features_allclose": true,
+    "features_exact_equal": true,
+    "max_abs_difference": 0.0,
+    "rtol": 0.0001,
+    "atol": 1e-05
+  },
+  "head_config_change": {
+    "central_hit": true,
+    "normalization_hits": 8,
+    "prepared_hits": 8,
+    "features_allclose": true,
+    "features_exact_equal": true,
+    "max_abs_difference": 0.0,
+    "rtol": 0.0001,
+    "atol": 1e-05
+  },
+  "must_invalidate": {
+    "checkpoint": true,
+    "records": true,
+    "data_version": true,
+    "batch_size": true,
+    "token_output": true
+  },
+  "total_model_loads": 1,
+  "total_forward_calls": 8,
+  "production_unchanged": true
+}

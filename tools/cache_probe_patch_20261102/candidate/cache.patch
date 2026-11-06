@@ -1,0 +1,31 @@
+--- parallel_dashboard.py (fixed cards)
++++ parallel_dashboard.py (cache candidate)
+@@ -404,7 +404,7 @@
+                    for start in range(0, len(records), batch_size)]
+     normalization_keys = [_normalization_key(batch, external_base, data_version)
+                           for batch in raw_batches]
+-    central_key = _digest({
++    central_payload = {
+         "schema": CACHE_SCHEMA,
+         "checkpoint_sha256": checkpoint_sha,
+         "model_config": cfg.to_dict(),
+@@ -413,11 +413,17 @@
+         "vocab": _tokenizer_vocab(),
+         "token_level": token_level,
+         "batch_size": batch_size,
+-        "probe_config": probe_config.to_json(),
+-    })
++    }
++    central_key = _digest(central_payload)
+     ids = [record["id"] for record in records]
+     central_path = _cache_path(cache_root, "embeddings", namespace, central_key)
+     cached = _read_cache(central_path, central_key, ids)
++    if cached is None:
++        legacy_key = _digest({**central_payload, "probe_config": probe_config.to_json()})
++        legacy_path = _cache_path(cache_root, "embeddings", namespace, legacy_key)
++        cached = _read_cache(legacy_path, legacy_key, ids)
++        if cached is not None:
++            _write_cache(central_path, central_key, ids, cached)
+     if cached is not None:
+         print(f"[fast-eval] {namespace}: central embedding cache hit", flush=True)
+         return cached, {"central_hit": True, "normalization_hits": len(raw_batches),

@@ -1,0 +1,29 @@
+{
+  "status": "completed",
+  "rows": 448,
+  "physical_gpus_per_node": "1,2,3,4,5,6,7",
+  "candidate_workers": 14,
+  "candidate_model_loads": 14,
+  "candidate_device_changes": 0,
+  "features_allclose": true,
+  "features_exact_equal": true,
+  "max_abs_difference": 0.0,
+  "code": {
+    "candidate": "2f3e3dcdd8c550a014f7ca696697809eb26f1f0b2a16c7270bdede66e6bfe1d6",
+    "prepare": "8ee2e277af7381eef61e718edf59bbcb959ec1e9c70723f7b24528a5146c4455",
+    "verification": "e6ad6442c4fc21d5c7202d5ddb36553d1c26b0029714c9c25b7d454559437169",
+    "cluster_helper": "582c95ea7fdc2236d05f77f206bfea5a78b44ff1909189a41c1a610988f91613",
+    "trace_helper": "8c171976ccc191aa548b85001c21510ef417b7b18339bdc5335b1611ed5d3530"
+  },
+  "node_reports": [
+    "result.0.json",
+    "result.1.json"
+  ],
+  "notes": [
+    "Actual candidate pool; pairs of batches per job guarantee model reuse.",
+    "First-job barrier ensures all seven workers participate on each node.",
+    "Pinned single-worker original reference follows candidate on each node.",
+    "Shared filesystem partition; no DDP/RDMA, training or 90-task speedup claim.",
+    "Production files and production caches unchanged."
+  ]
+}

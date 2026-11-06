@@ -1,0 +1,1177 @@
+"""四域记录级特征化；每条记录独立处理且从不静默截断。
+
+RDKit 是默认必需依赖。``strict=False`` 只保留明确标记的开发降级路径。
+序列记录走真正的 SMILES/PSMILES/残基 token，原子记录走 RDKit/PBC 图。
+"""
+from __future__ import annotations
+
+import math
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Sequence
+
+import numpy as np
+
+from .config import (
+    MuseConfig,
+    DOMAIN_SMALL_MOLECULE,
+    DOMAIN_POLYMER,
+    DOMAIN_CRYSTAL,
+    DOMAIN_BIO,
+    MODALITY_1D,
+    MODALITY_3D,
+)
+from .tokenizers import default_tokenizers
+from .structures import (
+    PBC_BASIS_CENTERS,
+    align_coordinates,
+    build_pbc_graph,
+    graph_from_smiles,
+)
+
+try:
+    from rdkit import Chem
+    _HAS_RDKIT = True
+except ImportError:
+    Chem = None
+    _HAS_RDKIT = False
+
+BOND_NONE, BOND_SINGLE, BOND_DOUBLE, BOND_TRIPLE, BOND_AROMATIC, BOND_DUMMY, BOND_PBC = range(7)
+TOKEN_ELEMENT, TOKEN_SMILES, TOKEN_PSMILES, TOKEN_RESIDUE = range(4)
+
+ATOM_FEATURE_DIM = 9
+ATOM_FEATURE_DIMS = (120, 8, 12, 12, 10, 6, 6, 2, 2)
+ATOM_ELEMENT_INDEX = 0
+ATOM_CHIRALITY_INDEX = 1
+ATOM_DEGREE_INDEX = 2
+ATOM_FORMAL_CHARGE_INDEX = 3
+ATOM_NUM_H_INDEX = 4
+ATOM_RADICAL_INDEX = 5
+ATOM_HYBRIDIZATION_INDEX = 6
+ATOM_AROMATIC_INDEX = 7
+ATOM_RING_INDEX = 8
+D_RESIDUE_CHIRAL_CODE = 7
+
+_ATOMIC_NUMBERS = list(range(1, 119)) + ["misc"]
+_CHIRALITY = [
+    "CHI_UNSPECIFIED",
+    "CHI_TETRAHEDRAL_CW",
+    "CHI_TETRAHEDRAL_CCW",
+    "CHI_TRIGONALBIPYRAMIDAL",
+    "CHI_OCTAHEDRAL",
+    "CHI_SQUAREPLANAR",
+    "CHI_OTHER",
+]
+_DEGREES = list(range(11)) + ["misc"]
+_CHARGES = list(range(-5, 6)) + ["misc"]
+_NUM_HS = list(range(9)) + ["misc"]
+_RADICALS = list(range(5)) + ["misc"]
+_HYBRIDIZATIONS = ["SP", "SP2", "SP3", "SP3D", "SP3D2", "misc"]
+
+
+@dataclass
+class FeaturizedRecord:
+    """Single-record arrays; position 0 is CLS and no padding is present."""
+
+    domain: int
+    modality: int
+    token_ids: np.ndarray
+    use_atom_features: bool
+    coords: Optional[np.ndarray] = None
+    coord_mask: Optional[np.ndarray] = None
+    bond_mat: Optional[np.ndarray] = None
+    spd_mat: Optional[np.ndarray] = None
+    n_real_tokens: int = 0
+    meta: Dict = field(default_factory=dict)
+    token_kind: Optional[np.ndarray] = None
+    atom_features: Optional[np.ndarray] = None
+    segment_ids: Optional[np.ndarray] = None
+    scalar_cond: Optional[np.ndarray] = None
+    spacegroup_id: int = 0
+    pair_disp: Optional[np.ndarray] = None
+    pbc_shift: Optional[np.ndarray] = None
+    pool_weights: Optional[np.ndarray] = None
+    pair_basis: Optional[np.ndarray] = None
+    pair_disp_mean: Optional[np.ndarray] = None
+    pbc_shift_mean: Optional[np.ndarray] = None
+    global_features: Optional[np.ndarray] = None
+
+
+_ELEMENT_SYMBOLS = [
+    "H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne",
+    "Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar", "K", "Ca",
+    "Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn",
+    "Ga", "Ge", "As", "Se", "Br", "Kr", "Rb", "Sr", "Y", "Zr",
+    "Nb", "Mo", "Tc", "Ru", "Rh", "Pd", "Ag", "Cd", "In", "Sn",
+    "Sb", "Te", "I", "Xe", "Cs", "Ba", "La", "Ce", "Pr", "Nd",
+    "Pm", "Sm", "Eu", "Gd", "Tb", "Dy", "Ho", "Er", "Tm", "Yb",
+    "Lu", "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt", "Au", "Hg",
+    "Tl", "Pb", "Bi", "Po", "At", "Rn", "Fr", "Ra", "Ac", "Th",
+    "Pa", "U", "Np", "Pu", "Am", "Cm", "Bk", "Cf", "Es", "Fm",
+    "Md", "No", "Lr", "Rf", "Db", "Sg", "Bh", "Hs", "Mt", "Ds",
+    "Rg", "Cn", "Nh", "Fl", "Mc", "Lv", "Ts", "Og",
+]
+_ELEMENT_INDEX = {symbol: i + 1 for i, symbol in enumerate(_ELEMENT_SYMBOLS)}
+DUMMY_ELEMENT = 0
+
+
+def _element_id(symbol: str) -> int:
+    return _ELEMENT_INDEX.get(str(symbol).capitalize(), DUMMY_ELEMENT)
+
+
+def _safe_index(values, value):
+    try:
+        return values.index(value)
+    except (ValueError, TypeError):
+        return len(values) - 1
+
+
+def _empty_atom_features(length: int) -> np.ndarray:
+    return np.zeros((length, ATOM_FEATURE_DIM), dtype=np.int64)
+
+
+def _default_atom_features(elements: Sequence[int], degrees=None) -> np.ndarray:
+    n = len(elements)
+    features = _empty_atom_features(n)
+    features[:, ATOM_FORMAL_CHARGE_INDEX] = _CHARGES.index(0)
+    features[:, ATOM_HYBRIDIZATION_INDEX] = len(_HYBRIDIZATIONS) - 1
+    features[:, ATOM_ELEMENT_INDEX] = [
+        _safe_index(_ATOMIC_NUMBERS, int(element)) if element > 0 else len(_ATOMIC_NUMBERS) - 1
+        for element in elements
+    ]
+    if degrees is not None:
+        features[:, ATOM_DEGREE_INDEX] = [
+            _safe_index(_DEGREES, int(degree)) for degree in degrees
+        ]
+    return features
+
+
+def _rdkit_atom_features(mol) -> np.ndarray:
+    features = _empty_atom_features(mol.GetNumAtoms())
+    for i, atom in enumerate(mol.GetAtoms()):
+        features[i] = [
+            _safe_index(_ATOMIC_NUMBERS, atom.GetAtomicNum()),
+            _safe_index(_CHIRALITY, str(atom.GetChiralTag())),
+            _safe_index(_DEGREES, atom.GetTotalDegree()),
+            _safe_index(_CHARGES, atom.GetFormalCharge()),
+            _safe_index(_NUM_HS, atom.GetTotalNumHs()),
+            _safe_index(_RADICALS, atom.GetNumRadicalElectrons()),
+            _safe_index(_HYBRIDIZATIONS, str(atom.GetHybridization())),
+            int(atom.GetIsAromatic()),
+            int(atom.IsInRing()),
+        ]
+    return features
+
+
+def _bond_and_spd(mol):
+    n = mol.GetNumAtoms()
+    bond = np.zeros((n + 1, n + 1), dtype=np.int64)
+    bond_types = {
+        Chem.BondType.SINGLE: BOND_SINGLE,
+        Chem.BondType.DOUBLE: BOND_DOUBLE,
+        Chem.BondType.TRIPLE: BOND_TRIPLE,
+        Chem.BondType.AROMATIC: BOND_AROMATIC,
+    }
+    for edge in mol.GetBonds():
+        i, j = edge.GetBeginAtomIdx() + 1, edge.GetEndAtomIdx() + 1
+        value = bond_types.get(edge.GetBondType(), BOND_DUMMY)
+        bond[i, j] = bond[j, i] = value
+    from rdkit.Chem import rdmolops
+
+    distances = rdmolops.GetDistanceMatrix(mol)
+    distances = np.where(np.isfinite(distances), distances, 15.0)
+    spd = np.zeros((n + 1, n + 1), dtype=np.int64)
+    spd[1:, 1:] = np.clip(distances, 0, 15).astype(np.int64)
+    np.fill_diagonal(spd, 0)
+    return bond, spd
+
+
+def _rdkit_graph(smiles: str):
+    mol = graph_from_smiles(smiles)
+    elements = [atom.GetAtomicNum() for atom in mol.GetAtoms()]
+    bond, spd = _bond_and_spd(mol)
+    return mol, elements, bond, spd, _rdkit_atom_features(mol)
+
+
+def _graph_spd(adjacency: np.ndarray) -> np.ndarray:
+    n = len(adjacency)
+    result = np.full((n, n), 15, dtype=np.int64)
+    for source in range(n):
+        result[source, source] = 0
+        queue = deque([source])
+        while queue:
+            i = queue.popleft()
+            if result[source, i] >= 14:
+                continue
+            for j in np.flatnonzero(adjacency[i]):
+                if result[source, j] == 15:
+                    result[source, j] = result[source, i] + 1
+                    queue.append(int(j))
+    output = np.zeros((n + 1, n + 1), dtype=np.int64)
+    output[1:, 1:] = result
+    return output
+
+
+def _smiles_fallback_graph(tokens: List[str], max_len=None):
+    """Explicit development-only approximation used after a strict=False decision."""
+    elements = []
+    for token in tokens:
+        if token in ("*", "(*)"):
+            elements.append(DUMMY_ELEMENT)
+        elif token.startswith("[") and token.endswith("]"):
+            inner = token.strip("[]")
+            symbol = "".join(char for char in inner if char.isalpha())[:2]
+            elements.append(_element_id(symbol))
+        elif token.isalpha() and len(token) <= 2:
+            elements.append(_element_id(token))
+    n = len(elements)
+    adjacency = np.zeros((n, n), dtype=bool)
+    bond = np.zeros((n + 1, n + 1), dtype=np.int64)
+    for i in range(n - 1):
+        adjacency[i, i + 1] = adjacency[i + 1, i] = True
+        bond[i + 1, i + 2] = bond[i + 2, i + 1] = BOND_SINGLE
+    spd = _graph_spd(adjacency)
+    return elements, bond, spd, _default_atom_features(elements, adjacency.sum(axis=1))
+
+
+def _centered_coords(coords, n: int) -> np.ndarray:
+    coords = np.asarray(coords, dtype=np.float64)
+    if coords.shape != (n, 3):
+        raise ValueError(
+            f"坐标数量必须与重原子完全一致: expected {(n, 3)}, got {coords.shape}"
+        )
+    if not np.isfinite(coords).all():
+        raise ValueError("坐标必须全部有限")
+    return (coords - coords.mean(axis=0, keepdims=True)).astype(np.float32)
+
+
+def _coords_with_cls(coords: Optional[np.ndarray], n: int):
+    if coords is None:
+        return None, None
+    output = np.zeros((n + 1, 3), dtype=np.float32)
+    output[1:] = coords
+    mask = np.zeros(n + 1, dtype=bool)
+    mask[1:] = True
+    return output, mask
+
+
+def _pair_from_coords(coords: Optional[np.ndarray]):
+    if coords is None:
+        return None
+    output = np.zeros((len(coords), len(coords), 3), dtype=np.float32)
+    real = coords[1:]
+    output[1:, 1:] = real[None, :, :] - real[:, None, :]
+    return output
+
+
+def _with_cls(array: np.ndarray, fill=0) -> np.ndarray:
+    array = np.asarray(array)
+    if array.ndim == 1:
+        output = np.full(len(array) + 1, fill, dtype=array.dtype)
+        output[1:] = array
+    elif array.ndim == 2 and array.shape[0] == array.shape[1]:
+        output = np.full((len(array) + 1, len(array) + 1), fill, dtype=array.dtype)
+        output[1:, 1:] = array
+    else:
+        raise ValueError("仅支持一维数组或方形二维数组添加 CLS")
+    return output
+
+
+def _pair_with_cls(array: np.ndarray) -> np.ndarray:
+    array = np.asarray(array)
+    if array.ndim != 3 or array.shape[:2] != (array.shape[0], array.shape[0]):
+        raise ValueError("pair 数组必须是 [N,N,C]")
+    output = np.zeros((len(array) + 1, len(array) + 1, array.shape[2]), dtype=array.dtype)
+    output[1:, 1:] = array
+    return output
+
+
+def _basis_with_cls(array: np.ndarray) -> np.ndarray:
+    array = np.asarray(array)
+    output = np.zeros((len(array) + 1, len(array) + 1, array.shape[2]), dtype=array.dtype)
+    output[1:, 1:] = array
+    return output
+
+
+def _composition_values(composition, count: int):
+    raw = np.asarray(composition, dtype=np.float64)
+    if raw.shape != (count,) or not np.isfinite(raw).all():
+        raise ValueError("composition 必须与 monomers 等长且全部有限")
+    if (raw < 0).any() or raw.sum() <= 0:
+        raise ValueError("composition 必须非负且总和为正")
+    normalized = raw / raw.sum()
+    scalar = np.zeros(max(4, count), dtype=np.float32)
+    scalar[:count] = normalized
+    return raw.astype(np.float32), normalized.astype(np.float32), scalar
+
+
+def _spacegroup_number(spacegroup_id=0, spacegroup=None) -> int:
+    value = spacegroup_id
+    if (value is None or value == 0) and spacegroup is not None:
+        value = spacegroup
+    if isinstance(value, dict):
+        value = value.get("number", value.get("id", value.get("spacegroup_id", 0)))
+    if value is None:
+        return 0
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return 0
+        try:
+            value = int(stripped)
+        except ValueError as exc:
+            raise ValueError("非数值 spacegroup 请显式提供 spacegroup_id") from exc
+    number = int(value)
+    if number < 0 or number > 230:
+        raise ValueError("spacegroup_id 必须为 0=缺失或 1–230")
+    return number
+
+
+def _lattice_parameters(lattice: np.ndarray) -> np.ndarray:
+    lengths = np.linalg.norm(lattice, axis=1)
+
+    def angle(u, v):
+        cosine = np.dot(u, v) / max(np.linalg.norm(u) * np.linalg.norm(v), 1e-12)
+        return math.degrees(math.acos(float(np.clip(cosine, -1.0, 1.0))))
+
+    return np.asarray(
+        [
+            lengths[0], lengths[1], lengths[2],
+            angle(lattice[1], lattice[2]),
+            angle(lattice[0], lattice[2]),
+            angle(lattice[0], lattice[1]),
+        ],
+        dtype=np.float32,
+    )
+
+
+def _concatenate_records(
+    records: List[FeaturizedRecord],
+    domain: int,
+    pool_blocks=None,
+    scalar_cond=None,
+    meta=None,
+) -> FeaturizedRecord:
+    total = 1 + sum(len(record.token_ids) - 1 for record in records)
+    token_ids = np.zeros(total, dtype=np.int64)
+    token_kind = np.zeros(total, dtype=np.int64)
+    atom_features = _empty_atom_features(total)
+    segment_ids = np.zeros(total, dtype=np.int64)
+    pool_weights = np.zeros(total, dtype=np.float32)
+    token_ids[0] = records[0].token_ids[0]
+    token_kind[0] = records[0].token_kind[0]
+
+    needs_pair = any(
+        record.bond_mat is not None or record.spd_mat is not None
+        or record.pair_disp is not None or record.pair_basis is not None
+        for record in records
+    )
+    bond = np.zeros((total, total), dtype=np.int64) if needs_pair else None
+    spd = np.zeros((total, total), dtype=np.int64) if needs_pair else None
+    if spd is not None:
+        spd[1:, 1:] = 15
+        np.fill_diagonal(spd, 0)
+    pair_disp = np.zeros((total, total, 3), dtype=np.float32) if any(
+        record.pair_disp is not None for record in records
+    ) else None
+    pbc_shift = np.zeros((total, total, 3), dtype=np.int64) if any(
+        record.pbc_shift is not None for record in records
+    ) else None
+    pair_basis = np.zeros((total, total, 32), dtype=np.float32) if any(
+        record.pair_basis is not None for record in records
+    ) else None
+    coords = np.zeros((total, 3), dtype=np.float32) if any(
+        record.coords is not None for record in records
+    ) else None
+    coord_mask = np.zeros(total, dtype=bool) if coords is not None else None
+
+    offsets = [1]
+    offset = 1
+    for segment, record in enumerate(records):
+        n = len(record.token_ids) - 1
+        sl = slice(offset, offset + n)
+        token_ids[sl] = record.token_ids[1:]
+        token_kind[sl] = record.token_kind[1:]
+        atom_features[sl] = record.atom_features[1:]
+        segment_ids[sl] = segment
+        if pool_blocks is None:
+            pool_weights[sl] = record.pool_weights[1:]
+        else:
+            pool_weights[sl] = pool_blocks[segment]
+        if record.bond_mat is not None:
+            bond[sl, sl] = record.bond_mat[1:, 1:]
+        if record.spd_mat is not None:
+            spd[sl, sl] = record.spd_mat[1:, 1:]
+        if record.pair_disp is not None:
+            pair_disp[sl, sl] = record.pair_disp[1:, 1:]
+        if record.pbc_shift is not None:
+            pbc_shift[sl, sl] = record.pbc_shift[1:, 1:]
+        if record.pair_basis is not None:
+            pair_basis[sl, sl] = record.pair_basis[1:, 1:]
+        if record.coords is not None:
+            coords[sl] = record.coords[1:]
+            coord_mask[sl] = record.coord_mask[1:]
+        offset += n
+        offsets.append(offset)
+
+    output_meta = dict(meta or {})
+    output_meta.update({
+        "monomer_offsets": np.asarray(offsets, dtype=np.int64),
+        "output_token_indices": np.arange(1, total, dtype=np.int64),
+        "expected_token_count": total - 1,
+    })
+    return FeaturizedRecord(
+        domain=domain,
+        modality=MODALITY_3D if coords is not None else MODALITY_1D,
+        token_ids=token_ids,
+        use_atom_features=all(record.use_atom_features for record in records),
+        coords=coords,
+        coord_mask=coord_mask,
+        bond_mat=bond,
+        spd_mat=spd,
+        n_real_tokens=total - 1,
+        meta=output_meta,
+        token_kind=token_kind,
+        atom_features=atom_features,
+        segment_ids=segment_ids,
+        scalar_cond=(np.zeros(4, dtype=np.float32) if scalar_cond is None else scalar_cond),
+        pair_disp=pair_disp,
+        pbc_shift=pbc_shift,
+        pool_weights=pool_weights,
+        pair_basis=pair_basis,
+    )
+
+
+class RecordFeaturizer:
+    def __init__(self, cfg: MuseConfig, tokenizers=None, strict: bool = True):
+        self.cfg = cfg
+        self.tk = tokenizers or default_tokenizers()
+        self.strict = bool(strict)
+
+    def _strict(self, strict):
+        return self.strict if strict is None else bool(strict)
+
+    def _chemical_graph(self, smiles: str, strict: bool):
+        tokens = self.tk["smiles"].tokenize(smiles)
+        if not _HAS_RDKIT:
+            if strict:
+                raise ImportError("RDKit 是正式默认必需依赖；strict=True 禁止 fallback")
+            elements, bond, spd, features = _smiles_fallback_graph(tokens)
+            return None, elements, bond, spd, features, True
+        try:
+            mol, elements, bond, spd, features = _rdkit_graph(smiles)
+            return mol, elements, bond, spd, features, False
+        except Exception:
+            if strict:
+                raise
+            elements, bond, spd, features = _smiles_fallback_graph(tokens)
+            return None, elements, bond, spd, features, True
+
+    def _validate_sequence_smiles(self, smiles: str, strict: bool):
+        if not _HAS_RDKIT:
+            if strict:
+                raise ImportError("RDKit 是正式默认必需依赖；strict=True 禁止 fallback")
+            return True
+        try:
+            graph_from_smiles(smiles)
+            return False
+        except Exception:
+            if strict:
+                raise
+            return True
+
+    def _chemical_sequence(self, text: str, domain: int, kind: int, tokenizer_name: str, strict):
+        degraded = self._validate_sequence_smiles(text, strict)
+        ids = self.tk[tokenizer_name].encode(text, add_cls=True)
+        # 保留完整化学 token 序列。训练数据集通过 S5 TrainingRecordFeaturizer
+        # 做确定性 token 裁剪；推理由 inference._can_window/_encode_long_record
+        # 做相邻分窗与长度加权池化，尾部 token 不再静默丢失。
+        truncated = False
+        length = len(ids)
+        return FeaturizedRecord(
+            domain=domain,
+            modality=MODALITY_1D,
+            token_ids=np.asarray(ids, dtype=np.int64),
+            use_atom_features=False,
+            n_real_tokens=length - 1,
+            meta={
+                "sample_type": "molecule" if domain == DOMAIN_SMALL_MOLECULE else "polymer",
+                "sequence_frontend": True,
+                "degraded": degraded,
+                "truncated": truncated,
+                "output_token_indices": np.arange(1, length, dtype=np.int64),
+                "expected_token_count": length - 1,
+            },
+            token_kind=np.full(length, kind, dtype=np.int64),
+            atom_features=_empty_atom_features(length),
+            segment_ids=np.zeros(length, dtype=np.int64),
+            scalar_cond=np.zeros(4, dtype=np.float32),
+            pool_weights=np.r_[0.0, np.ones(length - 1, dtype=np.float32)],
+        )
+
+    @staticmethod
+    def official_graph_fingerprint(record: FeaturizedRecord) -> str:
+        import hashlib
+
+        digest = hashlib.sha256()
+        digest.update(f"domain={record.domain};modality={record.modality}".encode())
+        for name in (
+            "token_ids", "atom_features", "bond_mat", "spd_mat", "coords",
+            "coord_mask", "pair_disp", "token_kind", "segment_ids", "pool_weights",
+            "scalar_cond",
+        ):
+            value = getattr(record, name)
+            digest.update(name.encode())
+            if value is None:
+                digest.update(b"None")
+                continue
+            array = np.ascontiguousarray(value)
+            digest.update(f"{array.dtype.str}:{array.shape}".encode())
+            digest.update(array.tobytes())
+        return digest.hexdigest()
+
+    def featurize_official_molecule(self, mol, *, record_id: str, repair: Dict):
+        from .structures import require_rdkit
+
+        if not self.strict:
+            raise ValueError("注册官方图修复只允许严格特征化模式")
+        if not isinstance(record_id, str) or repair.get("record_id") != record_id:
+            raise ValueError("官方图修复 record_id 不匹配")
+        chem = require_rdkit()
+        mol.UpdatePropertyCache(strict=False)
+        hydrogen_counts = {
+            atom.GetIdx(): int(atom.GetTotalNumHs()) + sum(
+                neighbor.GetAtomicNum() == 1 for neighbor in atom.GetNeighbors())
+            for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1
+        }
+        heavy_indices = [atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1]
+        source = chem.RWMol(mol)
+        for index in sorted((atom.GetIdx() for atom in mol.GetAtoms()
+                             if atom.GetAtomicNum() == 1), reverse=True):
+            source.RemoveAtom(index)
+        source.UpdatePropertyCache(strict=False)
+        for index, atom in enumerate(source.GetAtoms()):
+            atom.SetNumExplicitHs(hydrogen_counts[heavy_indices[index]])
+            atom.SetNoImplicit(True)
+        chem.GetSymmSSSR(source)
+        if source.GetNumAtoms() < 1 or source.GetNumConformers() != 1:
+            raise ValueError("注册官方图需要非空原子和恰好一个构象")
+        if any(atom.GetAtomicNum() not in _ATOMIC_NUMBERS for atom in source.GetAtoms()):
+            raise ValueError("注册官方图含未知元素")
+        allowed_bonds = {
+            chem.BondType.SINGLE, chem.BondType.DOUBLE,
+            chem.BondType.TRIPLE, chem.BondType.AROMATIC,
+        }
+        if any(bond.GetBondType() not in allowed_bonds for bond in source.GetBonds()):
+            raise ValueError("注册官方图含未知键类型")
+        positions = np.asarray(source.GetConformer().GetPositions(), dtype=np.float64)
+        n = source.GetNumAtoms()
+        if positions.shape != (n, 3) or not np.isfinite(positions).all():
+            raise ValueError("注册官方图坐标非法")
+        elements = [atom.GetAtomicNum() for atom in source.GetAtoms()]
+        bond, spd = _bond_and_spd(source)
+        features = _rdkit_atom_features(source)
+        centered = _centered_coords(positions, n)
+        coords, coord_mask = _coords_with_cls(centered, n)
+        atom_features = _empty_atom_features(n + 1)
+        atom_features[1:] = features
+        return FeaturizedRecord(
+            domain=DOMAIN_SMALL_MOLECULE,
+            modality=MODALITY_3D,
+            token_ids=np.r_[0, np.asarray(elements, dtype=np.int64)],
+            use_atom_features=True,
+            coords=coords,
+            coord_mask=coord_mask,
+            bond_mat=bond,
+            spd_mat=spd,
+            n_real_tokens=n,
+            meta={
+                "sample_type": "molecule",
+                "official_graph_repair": repair,
+                "degraded": False,
+                "sdf_mapping": tuple(range(n)),
+                "bond_pairs": np.asarray([
+                    (bond.GetBeginAtomIdx(), bond.GetEndAtomIdx())
+                    for bond in source.GetBonds()
+                ], dtype=np.int64),
+                "output_token_indices": np.arange(1, n + 1, dtype=np.int64),
+                "expected_token_count": n,
+            },
+            token_kind=np.zeros(n + 1, dtype=np.int64),
+            atom_features=atom_features,
+            segment_ids=np.zeros(n + 1, dtype=np.int64),
+            scalar_cond=np.zeros(4, dtype=np.float32),
+            pair_disp=_pair_from_coords(coords),
+            pool_weights=np.r_[0.0, np.ones(n, dtype=np.float32)],
+        )
+
+    def featurize_molecule(
+        self,
+        smiles: str,
+        coords: Optional[np.ndarray] = None,
+        sequence: bool = False,
+        strict: Optional[bool] = None,
+        sdf_mol=None,
+    ) -> FeaturizedRecord:
+        strict = self._strict(strict)
+        if sequence:
+            if coords is not None or sdf_mol is not None:
+                raise ValueError("SMILES 序列前端不接受逐原子坐标")
+            record = self._chemical_sequence(
+                smiles, DOMAIN_SMALL_MOLECULE, TOKEN_SMILES, "smiles", strict
+            )
+            record.meta["smiles"] = smiles
+            return record
+
+        mol, elements, bond, spd, features, degraded = self._chemical_graph(smiles, strict)
+        if sdf_mol is not None:
+            if coords is not None:
+                raise ValueError("coords 与 sdf_mol 只能提供一个")
+            if degraded:
+                raise ValueError("开发 fallback 图不能用于严格 SDF 原子对齐")
+            _, coords, mapping = align_coordinates(smiles, sdf_mol)
+        else:
+            mapping = None
+        n = len(elements)
+        centered = _centered_coords(coords, n) if coords is not None else None
+        c, cm = _coords_with_cls(centered, n)
+        length = n + 1
+        atom_features = _empty_atom_features(length)
+        atom_features[1:] = features
+        return FeaturizedRecord(
+            domain=DOMAIN_SMALL_MOLECULE,
+            modality=MODALITY_3D if centered is not None else MODALITY_1D,
+            token_ids=np.r_[0, np.asarray(elements, dtype=np.int64)],
+            use_atom_features=True,
+            coords=c,
+            coord_mask=cm,
+            bond_mat=bond,
+            spd_mat=spd,
+            n_real_tokens=n,
+            meta={
+                "sample_type": "molecule",
+                "smiles": smiles,
+                "degraded": degraded,
+                "sdf_mapping": mapping,
+                "bond_pairs": (np.asarray([(bond.GetBeginAtomIdx(), bond.GetEndAtomIdx())
+                                           for bond in mol.GetBonds()], dtype=np.int64)
+                               if mol is not None else np.zeros((0, 2), dtype=np.int64)),
+                "output_token_indices": np.arange(1, length, dtype=np.int64),
+                "expected_token_count": n,
+            },
+            token_kind=np.zeros(length, dtype=np.int64),
+            atom_features=atom_features,
+            segment_ids=np.zeros(length, dtype=np.int64),
+            scalar_cond=np.zeros(4, dtype=np.float32),
+            pair_disp=_pair_from_coords(c),
+            pool_weights=np.r_[0.0, np.ones(n, dtype=np.float32)],
+        )
+
+    def featurize_polymer(
+        self,
+        psmiles: str = None,
+        monomers: Optional[List[str]] = None,
+        composition: Optional[List[float]] = None,
+        sequence: bool = False,
+        strict: Optional[bool] = None,
+    ) -> FeaturizedRecord:
+        strict = self._strict(strict)
+        if psmiles is not None:
+            if monomers is not None or composition is not None:
+                raise ValueError("psmiles 与 monomers/composition 不能同时提供")
+            if sequence:
+                record = self._chemical_sequence(
+                    psmiles, DOMAIN_POLYMER, TOKEN_PSMILES, "psmiles", strict
+                )
+            else:
+                record = self.featurize_molecule(psmiles, strict=strict)
+                record.domain = DOMAIN_POLYMER
+            record.meta["sample_type"] = "polymer"
+            record.meta["psmiles"] = psmiles
+            return record
+
+        if not monomers or composition is None or len(monomers) != len(composition):
+            raise ValueError("共聚物需要等长且非空的 monomers 与 composition")
+        raw, normalized, scalar = _composition_values(composition, len(monomers))
+        records = [
+            self.featurize_molecule(monomer, sequence=sequence, strict=strict)
+            for monomer in monomers
+        ]
+        for record in records:
+            record.domain = DOMAIN_POLYMER
+        pool_blocks = []
+        for weight, record in zip(normalized, records):
+            n = len(record.token_ids) - 1
+            pool_blocks.append(np.full(n, weight / n, dtype=np.float32))
+        result = _concatenate_records(
+            records,
+            DOMAIN_POLYMER,
+            pool_blocks=pool_blocks,
+            scalar_cond=scalar,
+            meta={
+                "sample_type": "polymer",
+                "monomers": list(monomers),
+                "composition": raw,
+                "composition_normalized": normalized,
+                "sequence_frontend": sequence,
+                "degraded": any(record.meta.get("degraded", False) for record in records),
+            },
+        )
+        return result
+
+    def featurize_crystal(
+        self,
+        lattice,
+        frac_coords,
+        elements,
+        spacegroup_id=0,
+        spacegroup=None,
+        cutoff: Optional[float] = None,
+        max_neighbors: Optional[int] = None,
+    ) -> FeaturizedRecord:
+        lattice = np.asarray(lattice, dtype=np.float64)
+        unknown = [e for e in elements if isinstance(e, str) and e.capitalize() not in _ELEMENT_INDEX]
+        if unknown:
+            raise ValueError(f"未知晶体元素: {unknown}")
+        element_ids = [_element_id(e) if isinstance(e, str) else int(e) for e in elements]
+        if any(e <= 0 or e >= self.cfg.num_elements for e in element_ids):
+            raise ValueError("晶体元素 id 超出 config.num_elements")
+        global_features = None
+        if self.cfg.crystal_composition_features:
+            scale = float(self.cfg.crystal_composition_scale)
+            if not math.isfinite(scale) or scale <= 0:
+                raise ValueError("crystal_composition_scale 必须为有限正数")
+            if any(e > 118 for e in element_ids):
+                raise ValueError("组成表征不接受 dummy/mask 元素")
+            global_features = np.zeros(self.cfg.num_elements - 1, dtype=np.float32)
+            np.add.at(global_features, np.asarray(element_ids, dtype=np.int64) - 1, 1.0)
+            global_features[-1] = len(element_ids)
+            global_features /= scale
+        pbc = build_pbc_graph(
+            lattice,
+            frac_coords,
+            element_ids,
+            self.cfg.crystal_cutoff if cutoff is None else cutoff,
+            self.cfg.crystal_max_neighbors if max_neighbors is None else max_neighbors,
+        )
+        n = len(element_ids)
+        length = n + 1
+        c, cm = _coords_with_cls(pbc.coords, n)
+        bond = np.zeros((length, length), dtype=np.int64)
+        bond[1:, 1:][pbc.multiplicity > 0] = BOND_PBC
+        spd = _graph_spd(pbc.multiplicity > 0)
+        features = _empty_atom_features(length)
+        features[1:] = _default_atom_features(element_ids, pbc.neighbor_counts)
+        sg = _spacegroup_number(spacegroup_id, spacegroup)
+        params = _lattice_parameters(pbc.lattice)
+        scalar = np.asarray(
+            [params[0], params[1], params[2], abs(np.linalg.det(pbc.lattice))],
+            dtype=np.float32,
+        )
+        stats = pbc.truncation_stats
+        multiplicity = _with_cls(pbc.multiplicity)
+        return FeaturizedRecord(
+            domain=DOMAIN_CRYSTAL,
+            modality=MODALITY_3D,
+            token_ids=np.r_[0, np.asarray(element_ids, dtype=np.int64)],
+            use_atom_features=True,
+            coords=c,
+            coord_mask=cm,
+            bond_mat=bond,
+            spd_mat=spd,
+            n_real_tokens=n,
+            meta={
+                "sample_type": "crystal",
+                "lattice": pbc.lattice.astype(np.float32),
+                "lattice_parameters": params,
+                "frac_coords": pbc.frac_coords.astype(np.float32),
+                "spacegroup_id": sg,
+                "spacegroup": spacegroup if spacegroup is not None else sg,
+                "pbc_cutoff": float(self.cfg.crystal_cutoff if cutoff is None else cutoff),
+                "pbc_max_neighbors": int(self.cfg.crystal_max_neighbors if max_neighbors is None else max_neighbors),
+                "pbc_neighbor_indices": pbc.neighbor_indices,
+                "pbc_neighbor_shifts": pbc.neighbor_shifts,
+                "pbc_neighbor_distances": pbc.neighbor_distances,
+                "pbc_neighbor_mask": pbc.neighbor_mask,
+                "pbc_stats": stats,
+                "pbc_multiplicity": multiplicity,
+                "pbc_candidate_multiplicity": _with_cls(pbc.candidate_multiplicity),
+                "output_token_indices": np.arange(1, length, dtype=np.int64),
+                "expected_token_count": n,
+            },
+            token_kind=np.zeros(length, dtype=np.int64),
+            atom_features=features,
+            segment_ids=np.zeros(length, dtype=np.int64),
+            scalar_cond=scalar,
+            spacegroup_id=sg,
+            pair_disp=_pair_with_cls(pbc.pair_disp),
+            pbc_shift=_pair_with_cls(pbc.pbc_shift),
+            pool_weights=np.r_[0.0, np.ones(n, dtype=np.float32)],
+            pair_basis=_basis_with_cls(pbc.pair_basis),
+            pair_disp_mean=_pair_with_cls(pbc.pair_disp_mean),
+            pbc_shift_mean=_pair_with_cls(pbc.pbc_shift_mean),
+            global_features=global_features,
+        )
+
+    def featurize_sequence(self, seq: str, seq2: Optional[str] = None) -> FeaturizedRecord:
+        tokenizer = self.tk["residue"]
+        ids = tokenizer.encode(seq, add_cls=True)
+        chars1 = [char for char in seq.strip() if not char.isspace()]
+        lowercase1 = np.asarray([char.islower() for char in chars1], dtype=bool)
+        if len(chars1) != len(ids) - 1:
+            raise ValueError("残基 tokenizer 丢失了序列字符")
+        segment_parts = [np.zeros(len(ids), dtype=np.int64)]
+        lowercase_parts = [np.zeros(1, dtype=bool), lowercase1]
+        output_indices = list(range(1, len(ids)))
+        if seq2 is not None:
+            ids2 = tokenizer.encode(seq2, add_cls=False)
+            chars2 = [char for char in seq2.strip() if not char.isspace()]
+            lowercase2 = np.asarray([char.islower() for char in chars2], dtype=bool)
+            if len(chars2) != len(ids2):
+                raise ValueError("残基 tokenizer 丢失了第二条序列字符")
+            separator_position = len(ids)
+            ids = ids + [tokenizer.sep_id] + ids2
+            segment_parts.append(np.zeros(1, dtype=np.int64))
+            segment_parts.append(np.ones(len(ids2), dtype=np.int64))
+            lowercase_parts.append(np.zeros(1, dtype=bool))
+            lowercase_parts.append(lowercase2)
+            output_indices.extend(range(separator_position + 1, len(ids)))
+
+        length = len(ids)
+        segments = np.concatenate(segment_parts)
+        lowercase = np.concatenate(lowercase_parts)
+        features = _empty_atom_features(length)
+        features[lowercase, ATOM_CHIRALITY_INDEX] = D_RESIDUE_CHIRAL_CODE
+        pool = np.ones(length, dtype=np.float32)
+        pool[0] = 0.0
+        if seq2 is not None:
+            pool[separator_position] = 0.0
+        return FeaturizedRecord(
+            domain=DOMAIN_BIO,
+            modality=MODALITY_1D,
+            token_ids=np.asarray(ids, dtype=np.int64),
+            use_atom_features=False,
+            n_real_tokens=len(output_indices),
+            meta={
+                "sample_type": "protein_pair" if seq2 is not None else "protein",
+                "sequence": seq,
+                "sequence2": seq2,
+                "lowercase_mask": lowercase[1:],
+                "output_token_indices": np.asarray(output_indices, dtype=np.int64),
+                "expected_token_count": len(output_indices),
+            },
+            token_kind=np.full(length, TOKEN_RESIDUE, dtype=np.int64),
+            atom_features=features,
+            segment_ids=segments,
+            scalar_cond=np.zeros(4, dtype=np.float32),
+            pool_weights=pool,
+        )
+
+    def featurize_protein_ligand(
+        self,
+        sequence: str,
+        ligand_smiles: str,
+        ligand_coords: Optional[np.ndarray] = None,
+        strict: Optional[bool] = None,
+        sdf_mol=None,
+        ligand_sequence: bool = False,
+    ) -> FeaturizedRecord:
+        protein = self.featurize_sequence(sequence)
+        ligand = self.featurize_molecule(
+            ligand_smiles, coords=ligand_coords, strict=strict, sdf_mol=sdf_mol,
+            sequence=ligand_sequence,
+        )
+        result = _concatenate_records(
+            [protein, ligand],
+            DOMAIN_BIO,
+            meta={
+                "sample_type": "protein_ligand",
+                "sequence": sequence,
+                "ligand_smiles": ligand_smiles,
+                "protein_length": len(protein.token_ids) - 1,
+                "ligand_length": len(ligand.token_ids) - 1,
+                "degraded": ligand.meta.get("degraded", False),
+                "ligand_sequence_frontend": ligand_sequence,
+            },
+        )
+        result.meta["expected_token_count"] = result.n_real_tokens
+        return result
+
+    def featurize_peptide_atomic(
+        self,
+        smiles: Optional[str] = None,
+        coords: Optional[np.ndarray] = None,
+        annotation=None,
+        sequence: Optional[str] = None,
+        strict: Optional[bool] = None,
+    ) -> FeaturizedRecord:
+        strict = self._strict(strict)
+        if annotation is None:
+            try:
+                from .peptide import annotate_peptide
+            except ImportError as exc:
+                if strict:
+                    raise ImportError("strict=True 需要 peptide.annotate_peptide 标注") from exc
+                annotate_peptide = None
+            if annotate_peptide is not None:
+                try:
+                    annotation = self._call_peptide_annotator(
+                        annotate_peptide, smiles, sequence, coords
+                    )
+                except Exception:
+                    if strict:
+                        raise
+                    annotation = None
+        if isinstance(annotation, tuple) and len(annotation) == 3:
+            annotation = dict(zip(
+                ("group_ids", "sidechain_flags", "fragment_ids"), annotation
+            ))
+        if annotation is None:
+            if strict:
+                raise ValueError("strict=True 缺少肽原子级标注")
+            if smiles is None:
+                raise ValueError("无标注开发降级仍需要 peptide SMILES")
+            record = self.featurize_molecule(smiles, coords=coords, strict=False)
+            record.meta["degraded"] = True
+        elif isinstance(annotation, FeaturizedRecord):
+            record = annotation
+        else:
+            if isinstance(annotation, tuple) and len(annotation) == 2:
+                annotation = annotation[1]
+            if not isinstance(annotation, dict):
+                raise ValueError("peptide 标注必须是 FeaturizedRecord 或 dict")
+            if isinstance(annotation.get("record"), FeaturizedRecord):
+                record = annotation["record"]
+            else:
+                peptide_smiles = annotation.get("smiles", smiles)
+                if peptide_smiles is None:
+                    raise ValueError("肽原子级特征化需要 SMILES")
+                record = self.featurize_molecule(
+                    peptide_smiles,
+                    coords=annotation.get("coords", coords),
+                    strict=strict,
+                )
+
+        record.domain = DOMAIN_BIO
+        record.meta = dict(record.meta)
+        record.meta["sample_type"] = "peptide_atomic"
+        source = annotation if isinstance(annotation, dict) else record.meta
+        if isinstance(source.get("meta"), dict):
+            source = {**source["meta"], **source}
+        for key in ("group_ids", "sidechain_flags", "fragment_ids"):
+            value = source.get(key, record.meta.get(key))
+            if value is None:
+                if strict:
+                    raise ValueError(f"strict=True 缺少肽标注 {key}")
+                continue
+            record.meta[key] = _annotation_array(
+                value, len(record.token_ids), key
+            )
+        return record
+
+    @staticmethod
+    def _call_peptide_annotator(function, smiles, sequence, coords):
+        import inspect
+
+        signature = inspect.signature(function)
+        parameters = signature.parameters
+        if "mol" in parameters:
+            if smiles is None:
+                raise ValueError("Mol 肽标注接口需要 SMILES")
+            return function(graph_from_smiles(smiles))
+        available = {"smiles": smiles, "sequence": sequence, "coords": coords}
+        if any(p.kind == p.VAR_KEYWORD for p in parameters.values()):
+            return function(**{k: v for k, v in available.items() if v is not None})
+        kwargs = {
+            name: value for name, value in available.items()
+            if name in parameters and value is not None
+        }
+        if kwargs:
+            return function(**kwargs)
+        primary = smiles if smiles is not None else sequence
+        if primary is None:
+            raise ValueError("peptide.annotate_peptide 需要 SMILES 或序列")
+        return function(primary)
+
+
+def _annotation_array(value, length: int, key: str) -> np.ndarray:
+    value = np.asarray(value)
+    if value.ndim != 1:
+        raise ValueError(f"{key} 必须是一维数组")
+    if len(value) == length - 1:
+        fill = False if key == "sidechain_flags" else -1
+        return _with_cls(value, fill=fill)
+    if len(value) != length:
+        raise ValueError(f"{key} 长度必须与原子 token 对齐")
+    return value.copy()
+
+
+def _record_kind(record: FeaturizedRecord) -> np.ndarray:
+    if record.token_kind is not None:
+        return np.asarray(record.token_kind, dtype=np.int64)
+    if record.use_atom_features:
+        return np.zeros(len(record.token_ids), dtype=np.int64)
+    kind = {
+        DOMAIN_SMALL_MOLECULE: TOKEN_SMILES,
+        DOMAIN_POLYMER: TOKEN_PSMILES,
+    }.get(record.domain, TOKEN_RESIDUE)
+    return np.full(len(record.token_ids), kind, dtype=np.int64)
+
+
+def _validate_record(record: FeaturizedRecord):
+    length = len(record.token_ids)
+    if length < 1:
+        raise ValueError("记录至少需要 CLS")
+    for name in ("token_kind", "atom_features", "segment_ids", "pool_weights", "coord_mask"):
+        value = getattr(record, name)
+        if value is not None and len(value) != length:
+            raise ValueError(f"{name} 与 token_ids 长度不一致")
+    if record.coords is not None and record.coords.shape != (length, 3):
+        raise ValueError("coords 与 token_ids 长度不一致")
+    if record.global_features is not None and (
+            record.global_features.ndim != 1 or not np.isfinite(record.global_features).all()):
+        raise ValueError("global_features 必须为有限一维数组")
+    for name in ("bond_mat", "spd_mat", "pair_disp", "pbc_shift", "pair_basis", "pair_disp_mean", "pbc_shift_mean"):
+        value = getattr(record, name)
+        if value is not None and value.shape[:2] != (length, length):
+            raise ValueError(f"{name} 与 token_ids 长度不一致")
+    kind = _record_kind(record)
+    if len(kind) != length:
+        raise ValueError("token_kind 与 token_ids 长度不一致")
+
+
+def collate(records: List[FeaturizedRecord], cfg: MuseConfig) -> Dict[str, np.ndarray]:
+    """Pad to the batch maximum without clipping; pure sequence batches omit pair arrays."""
+    if not records:
+        raise ValueError("collate 需要至少一条记录")
+    for record in records:
+        _validate_record(record)
+    batch_size = len(records)
+    length = max(len(record.token_ids) for record in records)
+    scalar_width = max(
+        4,
+        max(len(record.scalar_cond) if record.scalar_cond is not None else 4 for record in records),
+    )
+    output = {
+        "token_ids": np.zeros((batch_size, length), dtype=np.int64),
+        "pad_mask": np.zeros((batch_size, length), dtype=bool),
+        "domain": np.asarray([r.domain for r in records], dtype=np.int64),
+        "modality": np.asarray([r.modality for r in records], dtype=np.int64),
+        "use_atom_features": np.asarray([r.use_atom_features for r in records], dtype=bool),
+        "n_real_tokens": np.asarray([r.n_real_tokens for r in records], dtype=np.int64),
+        "coords": np.zeros((batch_size, length, 3), dtype=np.float32),
+        "coord_mask": np.zeros((batch_size, length), dtype=bool),
+        "token_kind": np.zeros((batch_size, length), dtype=np.int64),
+        "atom_features": np.zeros((batch_size, length, ATOM_FEATURE_DIM), dtype=np.int64),
+        "atom_feature_mask": np.zeros((batch_size, length), dtype=bool),
+        "segment_ids": np.zeros((batch_size, length), dtype=np.int64),
+        "scalar_cond": np.zeros((batch_size, scalar_width), dtype=np.float32),
+        "spacegroup_id": np.asarray([r.spacegroup_id for r in records], dtype=np.int64),
+        "pool_weights": np.zeros((batch_size, length), dtype=np.float32),
+        "lattice": np.zeros((batch_size, 3, 3), dtype=np.float32),
+    }
+    needs_pair = any(
+        r.bond_mat is not None or r.spd_mat is not None or r.pair_disp is not None
+        or r.pbc_shift is not None or r.pair_basis is not None
+        for r in records
+    )
+    if needs_pair:
+        output.update({
+            "bond_mat": np.zeros((batch_size, length, length), dtype=np.int64),
+            "spd_mat": np.zeros((batch_size, length, length), dtype=np.int64),
+            "pair_disp": np.zeros((batch_size, length, length, 3), dtype=np.float32),
+            "pbc_shift": np.zeros((batch_size, length, length, 3), dtype=np.float32),
+        })
+    if any(r.pair_basis is not None for r in records):
+        output["pair_basis"] = np.zeros((batch_size, length, length, 32), dtype=np.float32)
+        output["pair_basis_mask"] = np.asarray([r.pair_basis is not None for r in records])
+    if any(r.pair_disp_mean is not None for r in records):
+        output["pair_disp_mean"] = np.zeros((batch_size, length, length, 3), dtype=np.float32)
+    if any(r.pbc_shift_mean is not None for r in records):
+        output["pbc_shift_mean"] = np.zeros((batch_size, length, length, 3), dtype=np.float32)
+    if any(r.global_features is not None for r in records):
+        width = max(len(r.global_features) for r in records if r.global_features is not None)
+        output["global_features"] = np.zeros((batch_size, width), dtype=np.float32)
+
+    has_pbc = any("pbc_multiplicity" in r.meta for r in records)
+    if has_pbc:
+        multiplicity = np.zeros((batch_size, length, length), dtype=np.int64)
+        output["pbc_multiplicity"] = multiplicity
+        output["pair_multiplicity"] = multiplicity
+        output["pair_multiplicity_mask"] = np.asarray([
+            "pbc_multiplicity" in r.meta for r in records
+        ])
+        for key in ("pbc_neighbor_counts", "pbc_retained_counts", "pbc_truncated_counts"):
+            output[key] = np.zeros((batch_size, length), dtype=np.int64)
+        width = max(
+            r.meta.get("pbc_neighbor_shifts", np.zeros((0, 0, 3))).shape[1]
+            for r in records
+        )
+        output["pbc_neighbor_indices"] = np.full((batch_size, length, width), -1, dtype=np.int64)
+        output["pbc_neighbor_shifts"] = np.zeros((batch_size, length, width, 3), dtype=np.int64)
+        output["pbc_neighbor_distances"] = np.zeros((batch_size, length, width), dtype=np.float32)
+        output["pbc_neighbor_mask"] = np.zeros((batch_size, length, width), dtype=bool)
+
+    peptide_keys = [
+        key for key in ("group_ids", "sidechain_flags", "fragment_ids")
+        if any(key in r.meta for r in records)
+    ]
+    for key in peptide_keys:
+        fill = False if key == "sidechain_flags" else -1
+        dtype = bool if key == "sidechain_flags" else np.int64
+        output[key] = np.full((batch_size, length), fill, dtype=dtype)
+
+    for b, record in enumerate(records):
+        current = len(record.token_ids)
+        output["token_ids"][b, :current] = record.token_ids
+        output["pad_mask"][b, :current] = True
+        output["token_kind"][b, :current] = _record_kind(record)
+        if record.atom_features is not None:
+            output["atom_features"][b, :current] = record.atom_features
+        output["atom_feature_mask"][b, :current] = (
+            (_record_kind(record) == TOKEN_ELEMENT)
+            | np.any(output["atom_features"][b, :current] != 0, axis=-1)
+        )
+        output["atom_feature_mask"][b, 0] = False
+        if record.segment_ids is not None:
+            output["segment_ids"][b, :current] = record.segment_ids
+        if record.scalar_cond is not None:
+            output["scalar_cond"][b, :len(record.scalar_cond)] = record.scalar_cond
+        if record.global_features is not None:
+            output["global_features"][b, :len(record.global_features)] = record.global_features
+        if "lattice" in record.meta:
+            output["lattice"][b] = record.meta["lattice"]
+        if record.pool_weights is not None:
+            output["pool_weights"][b, :current] = record.pool_weights
+        else:
+            output["pool_weights"][b, 1:current] = 1.0
+        if record.coords is not None:
+            output["coords"][b, :current] = record.coords
+            if record.coord_mask is not None:
+                output["coord_mask"][b, :current] = record.coord_mask
+        if needs_pair:
+            for key in ("bond_mat", "spd_mat", "pair_disp", "pbc_shift"):
+                value = getattr(record, key)
+                if value is not None:
+                    output[key][b, :current, :current] = value
+        for key in ("pair_basis", "pair_disp_mean", "pbc_shift_mean"):
+            if key in output and getattr(record, key) is not None:
+                output[key][b, :current, :current] = getattr(record, key)
+        if has_pbc and "pbc_multiplicity" in record.meta:
+            output["pbc_multiplicity"][b, :current, :current] = record.meta["pbc_multiplicity"]
+            stats = record.meta["pbc_stats"]
+            for output_key, stats_key in (
+                ("pbc_neighbor_counts", "neighbor_counts"),
+                ("pbc_retained_counts", "retained_counts"),
+                ("pbc_truncated_counts", "truncated_counts"),
+            ):
+                values = stats[stats_key]
+                output[output_key][b, 1:1 + len(values)] = values
+            for key in ("pbc_neighbor_indices", "pbc_neighbor_shifts", "pbc_neighbor_distances", "pbc_neighbor_mask"):
+                values = record.meta[key]
+                output[key][b, 1:1 + len(values), :values.shape[1]] = values
+        for key in peptide_keys:
+            if key in record.meta:
+                values = _annotation_array(record.meta[key], current, key)
+                output[key][b, :current] = values
+    return output

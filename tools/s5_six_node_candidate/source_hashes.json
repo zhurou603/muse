@@ -1,6 +1,6 @@
 {
   "schema_version": "s5.source_pin.v2",
-  "source_git_commit": "4a166882100abfa1f16aa523cfcbc1bd0f2130ed",
+  "source_git_commit": "f588216229d43e0cdc0dd18511deb0f4a3c83461",
   "files": {
     "model_design/configs/s5_continuous.yaml": "93992c8ace7602edeceb1915da537ef080a4b797a1174d9f5b0bc06624f39c06",
     "model_design/muse_encoder/__init__.py": "a776e10cc49ef51246579f5cde53bd6ebce21ef922bfb1d2f306bd590c77d3f2",
@@ -69,7 +69,7 @@
     "model_design/muse_encoder/s5/verify_a_test_input_repairs.py": "c4eb735f05b32afaa9fd702ed35d1b9b5172a80c290ab1d53ba889caaabb2d48",
     "model_design/muse_encoder/s5/verify_official_graph_repairs.py": "0bee888e21104a1878a80d8eeb631c13578c68984befd2241ba9e827bc4cc08a",
     "model_design/muse_encoder/s5/watch_evaluation.py": "b42d7d896656a7b78aa904062a28d77e4620a916d0bfe4dce8036e1bdadc4a14",
-    "model_design/muse_encoder/structures.py": "b5649aef163a32473cf995fcb2dd5dab2b74117027a1be85f0dac7541037b7f7",
+    "model_design/muse_encoder/structures.py": "056fdbfd2943a3002bddae7ce98a6819f0e29781eadba392b9bea1ca9412b8ee",
     "model_design/muse_encoder/tokenizers.py": "2fb19cfe9f9603e52fbfc58b29a726d74267e0d08b32e2cbe70f2261fe1a237c",
     "muse/encoders/__init__.py": "498b99b01f5f0b30405c64d60c2c9064a86581b0702db5d316247d521fb80cef",
     "muse/encoders/composition.py": "954443405945b2760c599dd6fa5c9e69728c8a80bd492e695e73204f6af4b2c7",

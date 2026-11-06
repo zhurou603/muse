@@ -57,15 +57,16 @@ def main():
                                source_commit, actual_commit])
     require(ancestry.returncode == 0, "Reviewed source commit is not an ancestor of production")
     subprocess.run(["git", "-C", str(repo), "diff", "--quiet", source_commit, actual_commit, "--",
-                    "model_design/muse_encoder", "model_design/configs/s5_continuous.yaml"], check=True)
+                    "model_design/muse_encoder", "model_design/configs/s5_continuous.yaml", "muse"], check=True)
     subprocess.run(["git", "-C", str(repo), "diff", "--quiet", actual_commit, "--",
-                    "model_design/muse_encoder", "model_design/configs/s5_continuous.yaml"], check=True)
+                    "model_design/muse_encoder", "model_design/configs/s5_continuous.yaml", "muse"], check=True)
     expected = pin["files"]
     for relative, checksum in expected.items():
         require(digest(repo / relative, text=True) == checksum,
                 f"Production source drift: {relative}; obtain updated source before patching")
     package = repo / "model_design/muse_encoder"
-    actual_py = {p.relative_to(repo).as_posix() for p in package.rglob("*.py")}
+    actual_py = {p.relative_to(repo).as_posix()
+                 for base in (package, repo / "muse") for p in base.rglob("*.py")}
     require(actual_py == {p for p in expected if p.endswith(".py")}, "Python source inventory drift")
     cp = args.checkpoint.resolve()
     pointer = None
@@ -85,7 +86,7 @@ def main():
         "schema_version": "s5.expansion.15to47.v1", "repo_root": str(repo),
         "source_git_commit": source_commit,
         "source_git_tree": subprocess.check_output(
-            ["git", "-C", str(repo), "rev-parse", "HEAD^{tree}"], text=True).strip(),
+            ["git", "-C", str(repo), "rev-parse", f"{source_commit}^{{tree}}"], text=True).strip(),
         "source_run": str(args.source_run.resolve()), "source_checkpoint": str(cp),
         "checkpoint_sha256": cp_hash, "source_world_size": 15, "target_world_size": 47,
         "source_state": payload["state"], "micro_batch": 8, "accumulation_steps": 1,
@@ -113,6 +114,8 @@ def main():
     out.mkdir(parents=True, exist_ok=False)
     candidate_package = out / "model_design/muse_encoder"
     shutil.copytree(package, candidate_package, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    shutil.copytree(repo / "muse", out / "muse", ignore=shutil.ignore_patterns(
+        "__pycache__", "*.pyc", "results", "scoreboard.csv"))
     for relative, checksum in expected.items():
         if relative.endswith(".py"):
             require(digest(out / relative, text=True) == checksum, f"Source changed while copying: {relative}")
@@ -149,7 +152,7 @@ def main():
         contract["inherited_skip_sha256"] = digest(out / "handoff/data_skips.jsonl")
     write_json(out / "contract.json", contract)
     files = {p.relative_to(out).as_posix(): digest(p)
-             for base in (out / "model_design", out / "tools")
+             for base in (out / "model_design", out / "tools", out / "muse")
              for p in base.rglob("*.py")}
     for name in ("config.yaml", "contract.json", "handoff/data_skips.jsonl"):
         files[name] = digest(out / name)

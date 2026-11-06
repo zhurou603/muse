@@ -13,12 +13,12 @@ def main():
     parser.add_argument("--repo", type=Path, required=True)
     args = parser.parse_args()
     repo = args.repo.resolve()
-    relative = ["model_design/muse_encoder", "model_design/configs/s5_continuous.yaml"]
+    relative = ["model_design/muse_encoder", "model_design/configs/s5_continuous.yaml", "muse"]
     subprocess.run(["git", "-C", str(repo), "diff", "--quiet", "HEAD", "--", *relative], check=True)
     subprocess.run(["git", "-C", str(repo), "diff", "--cached", "--quiet", "HEAD", "--", *relative], check=True)
     paths = subprocess.check_output(
         ["git", "-C", str(repo), "ls-files", "model_design/muse_encoder/*.py",
-         "model_design/configs/s5_continuous.yaml"], text=True).splitlines()
+         "model_design/configs/s5_continuous.yaml", "muse/**/*.py"], text=True).splitlines()
     root = Path(__file__).resolve().parent
     values = {}
     for name in sorted(paths):

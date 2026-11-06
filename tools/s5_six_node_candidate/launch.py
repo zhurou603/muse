@@ -115,7 +115,7 @@ def start(args):
             devices = ",".join(str(index) for index in range(local_workers))
             env = os.environ.copy()
             env.update({"REPO_ROOT": contract["repo_root"],
-                        "PYTHONPATH": str(root / "model_design"), "PYTHONDONTWRITEBYTECODE": "1",
+                        "PYTHONPATH": f"{root / 'model_design'}:{root}", "PYTHONDONTWRITEBYTECODE": "1",
                         "OMP_NUM_THREADS": "1", "HIP_VISIBLE_DEVICES": devices,
                         "CUDA_VISIBLE_DEVICES": devices,
                         "PYTORCH_ALLOC_CONF": "expandable_segments:True", "S5_PROCESS_PREFETCH": "1",

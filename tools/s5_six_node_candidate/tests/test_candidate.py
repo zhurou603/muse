@@ -28,7 +28,7 @@ class ControlledStopTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def trainer(self, rank=0):
-        model = torch.nn.Linear(2, 1)
+        model = torch.nn.Linear(3, 1)
         optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda _: 1.0)
         return S5Trainer(model, optimizer, scheduler, self.root / "run", 1, 20,

@@ -9,13 +9,30 @@ from pipeline import wait_for_smoke
 
 
 class PipelineGateTests(unittest.TestCase):
-    def test_only_matching_completed_smoke_is_accepted(self):
+    def write_session(self, root, mode="smoke-start"):
+        path = root / "frozen.json"
+        path.write_text(json.dumps({"mode": mode, "candidate": str(root),
+                                   "run_dir": str(root / "runs/smoke")}))
+        return path
+
+    def test_completed_state_without_mode_uses_immutable_session(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             (root / "control").mkdir()
-            state = {"state": "completed", "mode": "smoke-start", "session": "frozen.json"}
+            session = self.write_session(root)
+            state = {"state": "completed", "session": str(session)}
             (root / "control/cluster_state.json").write_text(json.dumps(state))
-            self.assertEqual(wait_for_smoke(root, 12345), Path("frozen.json"))
+            self.assertEqual(wait_for_smoke(root, 12345), session)
+
+    def test_session_mode_overrides_claimed_state_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / "control").mkdir()
+            session = self.write_session(root, mode="train-start")
+            (root / "control/cluster_state.json").write_text(json.dumps({
+                "state": "completed", "mode": "smoke-start", "session": str(session)}))
+            with self.assertRaisesRegex(RuntimeError, "did not complete"):
+                wait_for_smoke(root, 12345)
 
     def test_failed_smoke_does_not_pass_gate(self):
         with tempfile.TemporaryDirectory() as tmp:

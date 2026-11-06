@@ -34,8 +34,16 @@ def wait_for_smoke(root, pid):
     while True:
         state = read_json(path)
         if state.get("state") != "running":
-            if state.get("state") == "completed" and state.get("mode") == "smoke-start":
-                return Path(state["session"])
+            if state.get("state") != "completed":
+                raise RuntimeError(f"Initial smoke did not complete: {state}")
+            session_path = Path(state["session"])
+            if not session_path.is_absolute():
+                session_path = root / session_path
+            session = read_json(session_path)
+            if (state.get("state") == "completed" and session.get("mode") == "smoke-start"
+                    and Path(session["candidate"]).resolve() == root
+                    and Path(session["run_dir"]).resolve() == root / "runs/smoke"):
+                return session_path
             raise RuntimeError(f"Initial smoke did not complete: {state}")
         if state.get("pid") != pid:
             raise RuntimeError(f"Initial smoke orchestrator changed: {state}")

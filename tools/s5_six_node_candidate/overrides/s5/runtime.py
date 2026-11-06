@@ -138,6 +138,27 @@ class S5Trainer(Trainer):
             })
         return path
 
+    def should_stop(self):
+        control = os.environ.get("S5_CONTROL_FILE")
+        if not control:
+            return False
+        message = [None]
+        if not dist.is_initialized() or self.rank == 0:
+            path = Path(control)
+            if path.is_file():
+                try:
+                    record = json.loads(path.read_text(encoding="utf-8"))
+                    if record.get("action") != "stop" or not record.get("request_id"):
+                        raise ValueError("Invalid coordinated-stop request")
+                    message[0] = record
+                except Exception as exc:
+                    message[0] = {"error": f"{type(exc).__name__}: {exc}"}
+        if dist.is_initialized():
+            dist.broadcast_object_list(message, src=0)
+        if message[0] and "error" in message[0]:
+            raise ValueError(message[0]["error"])
+        return bool(message[0])
+
     def resume(self, path: Path, *, payload=None, expansion_seed=None):
         path = resolve_resume_path(path)
         if payload is None:

@@ -86,8 +86,16 @@ class CheckpointManager:
 
     def _atomic_torch_save(self, value, path: Path):
         tmp = path.with_suffix(path.suffix + f".tmp-rank{self.rank}")
-        torch.save(value, tmp)
+        with tmp.open("wb") as stream:
+            torch.save(value, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
         os.replace(tmp, path)
+        descriptor = os.open(self.directory, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
 
     def save(self, name: str, model, optimizer, scheduler, state: TrainState,
              config: dict, metadata: dict | None = None):
@@ -160,6 +168,9 @@ class Trainer:
         self.bf16 = bf16
         self.checkpoints = CheckpointManager(run_dir / "checkpoints", rank)
         self.state = TrainState()
+
+    def should_stop(self):
+        return False
 
     def resume(self, path: Path):
         self.state = self.checkpoints.load(path, self.model, self.optimizer, self.scheduler)
@@ -238,6 +249,8 @@ class Trainer:
         aggregated_count = 0
         batch_samples = 0
         for batch, targets in stream_factory(self.state.micro_step):
+            if self.should_stop():
+                break
             is_last = (self.state.micro_step + 1) % self.accumulation_steps == 0
             sync_context = self.model.no_sync() if (
                 isinstance(self.model, DistributedDataParallel) and not is_last

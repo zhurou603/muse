@@ -99,8 +99,11 @@ def main():
             raise ValueError("S5_NCCL_TIMEOUT_SECONDS 必须为正数")
         dist.init_process_group("nccl", timeout=datetime.timedelta(seconds=nccl_timeout))
     rank = dist.get_rank() if distributed else 0
+    import platform
     launch_identity = (contract_sha256, args.resume_sha256, str(args.run_dir.resolve()),
-                       args.stop_after, micro_batch, accumulation, prefetch)
+                       args.stop_after, micro_batch, accumulation, prefetch,
+                       os.environ.get("S5_SESSION_ID"), platform.python_version(),
+                       torch.__version__, torch.version.hip, torch.cuda.device_count())
     launch_identities = [None] * world_size
     dist.all_gather_object(launch_identities, launch_identity)
     if any(value != launch_identity for value in launch_identities):

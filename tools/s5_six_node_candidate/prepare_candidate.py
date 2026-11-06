@@ -47,7 +47,15 @@ def main():
     import torch
     import yaml
 
-    expected = json.loads((ROOT / "source_hashes.json").read_text())
+    import subprocess
+    pin = json.loads((ROOT / "source_hashes.json").read_text())
+    require(pin.get("schema_version") == "s5.source_pin.v2", "Run pin_source.py on a reviewed commit")
+    source_commit = subprocess.check_output(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+    require(source_commit == pin["source_git_commit"], "Production Git commit differs from reviewed pin")
+    subprocess.run(["git", "-C", str(repo), "diff", "--quiet", "HEAD", "--",
+                    "model_design/muse_encoder", "model_design/configs/s5_continuous.yaml"], check=True)
+    expected = pin["files"]
     for relative, checksum in expected.items():
         require(digest(repo / relative, text=True) == checksum,
                 f"Production source drift: {relative}; obtain updated source before patching")
@@ -70,6 +78,9 @@ def main():
     require(payload["config"]["config"] == config, "Current YAML differs from checkpoint configuration")
     contract = {
         "schema_version": "s5.expansion.15to48.v1", "repo_root": str(repo),
+        "source_git_commit": source_commit,
+        "source_git_tree": subprocess.check_output(
+            ["git", "-C", str(repo), "rev-parse", "HEAD^{tree}"], text=True).strip(),
         "source_run": str(args.source_run.resolve()), "source_checkpoint": str(cp),
         "checkpoint_sha256": cp_hash, "source_world_size": 15, "target_world_size": 48,
         "source_state": payload["state"], "micro_batch": 8, "accumulation_steps": 1,
@@ -102,6 +113,12 @@ def main():
     for override in (ROOT / "overrides").rglob("*.py"):
         target = candidate_package / override.relative_to(ROOT / "overrides")
         target.write_text(override.read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
+    tools_out = out / "tools/s5_six_node_candidate"
+    tools_out.mkdir(parents=True)
+    for source in ROOT.rglob("*.py"):
+        target = tools_out / source.relative_to(ROOT)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
     (out / "data").symlink_to(repo / "data", target_is_directory=True)
     (out / "config.yaml").write_text(cfg_path.read_text(encoding="utf-8"), encoding="utf-8")
     (out / "handoff").mkdir()
@@ -125,7 +142,8 @@ def main():
         contract["inherited_skip_sha256"] = digest(out / "handoff/data_skips.jsonl")
     write_json(out / "contract.json", contract)
     files = {p.relative_to(out).as_posix(): digest(p)
-             for p in candidate_package.rglob("*.py")}
+             for base in (out / "model_design", out / "tools")
+             for p in base.rglob("*.py")}
     for name in ("config.yaml", "contract.json", "handoff/data_skips.jsonl"):
         files[name] = digest(out / name)
     write_json(out / "prepared.json", {"files": files, "source_hashes": expected,

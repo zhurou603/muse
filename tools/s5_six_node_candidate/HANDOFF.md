@@ -15,7 +15,7 @@ Git 主线合并提交：`ab29bf8c50f513b4f4ff976a40cb7c6b71af7645`；最终本�
 - 新候选：`/yinghepool/tech-dcu/zhaoyao/tools/s5_six_node_step17500_20261106`。
 - 固定副本：`handoff/source.pt`；禁止追随旧 `latest.json` 或旧 16900 候选。
 - 生产源码 commit：`499e65f29ac377ab106b918f76bf51d03d4946ec`；tree：`22aae33a2e7eb137051d1ec8d3af712ce33babc9`。
-- 六机工具分支：`feat/s5-six-node-20261106`；冻结工具 commit：`d351046de952456992f6e7270375ee94cb60b613`。
+- 六机工具分支：`feat/s5-six-node-20261106`；冻结工具 commit：`d1eee6b1ec86d87d57ed4a64861f28e86b317951`（与候选 `prepared.json/tool_git_commit` 一致）。
 - 数据清单 SHA256：`fafe5a6b0f97bbc35e64b5af3585627a2fcab5e4aedcff1e7c82af374c396ee8`。
 - 继承的坏样本排除清单 SHA256：`ad67acde58ed969fa449deacb1ff66fdc8bdc91150383da22f7cd364dbe524f9`。
 - 历史 `tools/s5_six_node_runtime_20261106` 是 16900 旧候选，保留审计，不用于本次续训。

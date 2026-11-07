@@ -91,7 +91,7 @@ def select_checkpoint(training_run, world_size=47):
     if not isinstance(step, int) or step < 0 or pointer.get("micro_step") != step:
         raise RuntimeError("latest.json 的 step/micro_step 无效")
     checkpoint = Path(pointer["path"]).resolve()
-    expected = training_run / "checkpoints" / f"step_{step:07d}.pt"
+    expected = training_run / "checkpoints" / f"step_{step:08d}.pt"
     if checkpoint != expected or not checkpoint.is_file():
         raise RuntimeError(f"latest checkpoint 路径或文件无效: {checkpoint}")
     claimed_sha = pointer.get("sha256", "")
@@ -203,12 +203,14 @@ class ContinuousATest:
         write_json(self.state_path, self.state)
 
     def prepare_source(self):
+        metadata_path = self.source_dir / "source_snapshot.json"
+        if self.code_commit is None and metadata_path.is_file():
+            self.code_commit = read_json(metadata_path).get("git_commit")
         if self.code_commit is None:
             self.code_commit = subprocess.check_output(
                 ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
         if not re.fullmatch(r"[0-9a-f]{40}", self.code_commit):
             raise RuntimeError("A-test 源码 commit 无效")
-        metadata_path = self.source_dir / "source_snapshot.json"
         if metadata_path.is_file():
             metadata = read_json(metadata_path)
             if metadata.get("git_commit") != self.code_commit:
@@ -298,13 +300,13 @@ class ContinuousATest:
         return process.returncode if process is not None else None
 
     def execute(self, record, evaluator, sleep):
-        run_dir = self.state_dir / "runs" / f"step_{record['step']:07d}"
+        run_dir = self.state_dir / "runs" / f"step_{record['step']:08d}"
         run_dir.mkdir(parents=True, exist_ok=False)
         frozen = run_dir / "checkpoint.pt"
         os.link(record["path"], frozen)
         if sha256(frozen) != record["sha256"]:
             raise RuntimeError("冻结 checkpoint 副本的 SHA256 不一致")
-        cache = ROOT / "data/pretrain/cache/continuous_a_test" / f"step_{record['step']:07d}"
+        cache = ROOT / "data/pretrain/cache/continuous_a_test" / f"step_{record['step']:08d}"
         source_metadata = read_json(self.source_dir / "source_snapshot.json")
         launch = {"status": "prepared", "time": now(), "checkpoint": str(frozen),
                   "source_checkpoint": record["path"], "checkpoint_step": record["step"],
@@ -498,6 +500,10 @@ def main():
     signal.signal(signal.SIGINT, lambda *_: setattr(daemon, "stop_requested", True))
     try:
         daemon.run(max_rounds=1 if args.once else 0)
+    except Exception as error:
+        daemon.event("daemon_failed", error=str(error))
+        daemon.save_state("failed", error=str(error), current_pid=None)
+        raise
     finally:
         fcntl.flock(lock, fcntl.LOCK_UN)
         lock.close()

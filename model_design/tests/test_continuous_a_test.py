@@ -24,7 +24,7 @@ class ContinuousATestCase(unittest.TestCase):
         self.temporary.cleanup()
 
     def make_checkpoint(self, step=1):
-        checkpoint = self.checkpoints / f"step_{step:07d}.pt"
+        checkpoint = self.checkpoints / f"step_{step:08d}.pt"
         payload = f"checkpoint-{step}".encode()
         checkpoint.write_bytes(payload)
         for rank in range(47):

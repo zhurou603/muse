@@ -1,6 +1,6 @@
 {
   "schema_version": "s5.source_pin.v2",
-  "source_git_commit": "f588216229d43e0cdc0dd18511deb0f4a3c83461",
+  "source_git_commit": "3b6e604dc33c4fd4726f52640bfd4fe769d2df37",
   "files": {
     "model_design/configs/s5_continuous.yaml": "93992c8ace7602edeceb1915da537ef080a4b797a1174d9f5b0bc06624f39c06",
     "model_design/muse_encoder/__init__.py": "a776e10cc49ef51246579f5cde53bd6ebce21ef922bfb1d2f306bd590c77d3f2",
@@ -45,7 +45,7 @@
     "model_design/muse_encoder/pretrain/smoke_dcu.py": "fa6fac7c89bc3a6832b7ab6c5db7d499012b2106ef4c042214ca8e88aab3f8dc",
     "model_design/muse_encoder/pretrain/smoke_ddp.py": "a8758002ec82b2622d06221430da4454f44cda46dca0772cb860f0ccc5add73a",
     "model_design/muse_encoder/pretrain/targets.py": "b522132cee1829a526e854581360b091a649d32375e09f4c5dd387a98be1bd48",
-    "model_design/muse_encoder/pretrain/trainer.py": "9b4bd836ba42d6023bd9d12c6568b4aee339bfce1c1da5b9f5f5de5484880770",
+    "model_design/muse_encoder/pretrain/trainer.py": "689ac7236b247d39ec4a9f865f68d4d2b47753e5b91eb3820ea7b6957aaa1837",
     "model_design/muse_encoder/s5/__init__.py": "b08c5894b0d71052cce96b4ebc57c282e1f1b428e13e7ba5088f186564f5e5c4",
     "model_design/muse_encoder/s5/audit_external.py": "4dfec2a7f9cfd0dc0e50e28e5c2ff7ed8143cedda0551976e2561615795359af",
     "model_design/muse_encoder/s5/audit_featurization.py": "6e7c73282c47682e9ce78f8c55927d80c59494705a56d8dbd4358a2077ea090d",
@@ -63,8 +63,8 @@
     "model_design/muse_encoder/s5/provenance.py": "560978615bb22dc01808dd21466fe8fcc7661aa977b515092c759eb9528f79b7",
     "model_design/muse_encoder/s5/robust_dashboard.py": "ac6a9172be2d28b5f397f74881115bbe37cb43294ace285b6468623cc26d1424",
     "model_design/muse_encoder/s5/robust_targets.py": "cb38bee58cc9f58c48b9805a8d2af0ac456add13a987b13e5439ed44d9e7c357",
-    "model_design/muse_encoder/s5/runtime.py": "3c01676190ea55abad12c26f24d4d9d5c366d2d71332a54dee49690db3d95e9a",
-    "model_design/muse_encoder/s5/train.py": "655d3a117ec239f434dd3c9bf6b7ab614e09279d9cec26371eb9ebed36278853",
+    "model_design/muse_encoder/s5/runtime.py": "46535d16d591877c0aa3e98786be625e3a72a969f10e4571ded49b2273781100",
+    "model_design/muse_encoder/s5/train.py": "e906f1b0f87c632f8c774feb1d61b1e80cebe4cae3d06afdaaeda9678b98925a",
     "model_design/muse_encoder/s5/verify_a_test_cpu.py": "101566b3707651dc210efdb36b96c11e80bd3ace58de0c790f69879e1e0330f9",
     "model_design/muse_encoder/s5/verify_a_test_input_repairs.py": "c4eb735f05b32afaa9fd702ed35d1b9b5172a80c290ab1d53ba889caaabb2d48",
     "model_design/muse_encoder/s5/verify_official_graph_repairs.py": "0bee888e21104a1878a80d8eeb631c13578c68984befd2241ba9e827bc4cc08a",

@@ -113,7 +113,10 @@ def main():
                        os.environ.get("S5_SESSION_ID"), platform.python_version(),
                        torch.__version__, torch.version.hip, EXPECTED_WORLD_SIZE,
                        np.__version__, yaml.__version__, rdkit.__version__,
-                       torch.cuda.get_device_name(device))
+                       torch.cuda.get_device_name(device),
+                       os.environ.get("S5_ALLOW_NONFINITE_SKIP", "0"),
+                       os.environ.get("S5_MAX_NONFINITE_SKIPS", "20"),
+                       os.environ.get("S5_MAX_CONSECUTIVE_NONFINITE_SKIPS", "3"))
     launch_identities = [None] * world_size
     dist.all_gather_object(launch_identities, launch_identity)
     if any(value != launch_identity for value in launch_identities):
@@ -223,6 +226,7 @@ def main():
                       workers=prefetch, persisted_skip_sources=len(skipped_rows),
                       persisted_skip_rows=sum(map(len, skipped_rows.values())))
     course_logger = CourseLogger(run_dir, rank, bool(training.get("log_course_rows", True)))
+    trainer.course_log_path = run_dir / f"course_rank{rank}.jsonl"
     dataset_locks = {name: threading.Lock() for name in data.datasets}
     skip_logger = DataSkipLogger(run_dir, rank)
 
@@ -328,6 +332,11 @@ def main():
         "stop_after": args.stop_after,
         "data_verification": verification,
         "data_manifest_sha256": sha256_file(config["data"]["data_manifest"]),
+        "allow_nonfinite_skip": trainer.allow_nonfinite_skip,
+        "max_nonfinite_skips": trainer.max_nonfinite_skips,
+        "max_consecutive_nonfinite_skips": trainer.max_consecutive_nonfinite_skips,
+        "nonfinite_skip_count": trainer.nonfinite_skip_count,
+        "runtime_tool_git_commit": os.environ.get("S5_RUNTIME_TOOL_GIT_COMMIT"),
         "validation_test_labels_used": False,
     }
     metadata = {"s5_init": init_record, "data_manifest_sha256": run_config["data_manifest_sha256"],

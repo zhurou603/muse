@@ -155,3 +155,12 @@ $PY -B $TOOL stop --candidate $C --grace-seconds 900 --reason 'operator planned 
 - 含训练YAML/实际运行配置、loss JSONL/CSV/SVG、异常输入与非有限步审计、吞吐、checkpoint血缘/hash、manifest与SHA256SUMS。不包含模型权重、原始预测或原始数据。
 - 训练快照step32200，741条loss；主线未因打包停止。ZIP CRC、CSV/SVG可读性和所有payload hash均通过独立复核。
 - 未上传、未覆盖正式提交、未按latest选模。打包源码为 `tools/package_s5_results.py`。
+
+## 9. 持续完整 A-test（2026-11-08 00:55）
+
+- 独立守护 `model_design/launches/s5-continuous-20261104/continuous_a_test.py` 已启动，PID177838；状态目录 `model_design/runs/s5-continuous-four-domain-v1/continuous_a_test/`。它不依赖交互应用，使用单实例锁，任何时刻只运行一个完整A-test。
+- 当前评估step36800，SHA256 `a23b62199460288281b857e070acc7759064d22b0453ca62bba26959c96be02b`，输出 `continuous_a_test/runs/step_00036800/`。尚未出分；90/90、官方check和空编码失败必须由守护复核后才记为成功。
+- 后续每轮结束时读取当时 `runs/main/latest.json`，校验8位step文件名、checkpoint hash/血缘和47份RNG，以硬链接冻结权重；相同checkpoint不重复跑，失败等待新checkpoint。第7卡、90项完整test、单种子、train_cap50000、batch64、CPU workers14保持不变。
+- 评估源码固定commit `c32867f91f58b6a9f4e58899027d19623cda8c57`；v3修复清单及1444个表征文件已冻结并校验。runner修复commit `e77b64c6445e87dd0fbf11fb611b914f143313ac`，测试9/9。step36700失败现场保留，无分数。
+- 查看：`/home/zhaoyao/miniconda3/envs/muse-pretrain/bin/python -B model_design/launches/s5-continuous-20261104/continuous_a_test.py status`。停止：同命令以 `stop` 代替 `status`，会阻止下一轮并终止当前守护所属的评估；不要用于停止训练。
+- 不自动上传、不覆盖正式提交、不按latest选模。训练启动器本身仍不启动A-test，当前循环只由上述独立守护负责。

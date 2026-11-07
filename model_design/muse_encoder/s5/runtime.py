@@ -145,11 +145,15 @@ class S5Trainer(Trainer):
         # A sidecar is optional for historical checkpoints; latest.json is checked
         # by resolve callers before reaching this method when available.
         super().resume(path)
+        self.nonfinite_skip_count = int(payload["config"].get("nonfinite_skip_count", 0))
+        self.consecutive_nonfinite_skips = 0
         state = self.state
         if self.rank == 0:
             atomic_json(self.run_dir / "resumed_from.json", {
                 "path": str(path.resolve()), "sha256": expected,
                 "step": int(state.step), "micro_step": int(state.micro_step),
+                "allow_nonfinite_skip": self.allow_nonfinite_skip,
+                "nonfinite_skip_count": self.nonfinite_skip_count,
             })
         return state
 

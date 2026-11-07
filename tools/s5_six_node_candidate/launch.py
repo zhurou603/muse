@@ -124,6 +124,11 @@ def start(args):
                         "NCCL_IB_DISABLE": "0", "NCCL_NET": "IB", "NCCL_DEBUG": "INFO",
                         "NCCL_DEBUG_SUBSYS": "INIT,NET", "S5_SESSION_ID": session_path.stem,
                         "S5_CONTROL_FILE": str(Path(session["run_dir"]) / "control/stop.json"),
+                        "S5_ALLOW_NONFINITE_SKIP": "1",
+                        "S5_MAX_NONFINITE_SKIPS": "20",
+                        "S5_MAX_CONSECUTIVE_NONFINITE_SKIPS": "3",
+                        "S5_RUNTIME_TOOL_GIT_COMMIT": json.loads(
+                            (root / "prepared.json").read_text()).get("tool_git_commit", ""),
                         "NCCL_IB_HCA": "=mlx5_bond_0:1,mlx5_bond_1:1,mlx5_bond_2:1,mlx5_bond_3:1"})
             for name in ("ROCR_VISIBLE_DEVICES", "NCCL_DEBUG_FILE", "PYTHONHOME",
                          "S5_SSH_PASSWORD", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE"):

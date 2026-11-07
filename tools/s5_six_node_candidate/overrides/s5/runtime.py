@@ -170,6 +170,8 @@ class S5Trainer(Trainer):
         if expansion_seed is not None:
             from muse_encoder.pretrain.trainer import seed_everything
             seed_everything(expansion_seed)
+        self.nonfinite_skip_count = int(payload["config"].get("nonfinite_skip_count", 0))
+        self.consecutive_nonfinite_skips = 0
         state = self.state
         if self.rank == 0:
             atomic_json(self.run_dir / "resumed_from.json", {
@@ -177,6 +179,8 @@ class S5Trainer(Trainer):
                 "step": int(state.step), "micro_step": int(state.micro_step),
                 "rng_policy": "rank_reseed" if expansion_seed is not None else "restore_sidecar",
                 "rank0_expansion_seed": expansion_seed,
+                "allow_nonfinite_skip": self.allow_nonfinite_skip,
+                "nonfinite_skip_count": self.nonfinite_skip_count,
             })
         return state
 

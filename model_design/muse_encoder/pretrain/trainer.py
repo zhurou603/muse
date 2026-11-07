@@ -158,6 +158,18 @@ class Trainer:
         self.bf16 = bf16
         self.checkpoints = CheckpointManager(run_dir / "checkpoints", rank)
         self.state = TrainState()
+        self.allow_nonfinite_skip = os.environ.get("S5_ALLOW_NONFINITE_SKIP") == "1"
+        self.max_nonfinite_skips = int(os.environ.get("S5_MAX_NONFINITE_SKIPS", "20"))
+        self.max_consecutive_nonfinite_skips = int(
+            os.environ.get("S5_MAX_CONSECUTIVE_NONFINITE_SKIPS", "3"))
+        if min(self.max_nonfinite_skips, self.max_consecutive_nonfinite_skips) < 1:
+            raise ValueError("非有限步跳过上限必须为正数")
+        self.nonfinite_skip_count = 0
+        self.consecutive_nonfinite_skips = 0
+        self.course_log_path = None
+
+    def should_stop(self):
+        return False
 
     def resume(self, path: Path):
         self.state = self.checkpoints.load(path, self.model, self.optimizer, self.scheduler)
@@ -204,7 +216,7 @@ class Trainer:
         return output
 
     def _log(self, losses: dict, lr: float, elapsed: float, batch_samples: int, mole=None,
-             grad_norm: float | None = None):
+             grad_norm: float | None = None, skipped: bool = False):
         if self.rank != 0:
             return
         record = {
@@ -218,10 +230,72 @@ class Trainer:
         }
         if grad_norm is not None:
             record["grad_norm"] = float(grad_norm)
+        if skipped:
+            record["skipped"] = True
+            record["skip_reason"] = "nonfinite_gradient"
         if mole:
             record["mole"] = mole
         with (self.run_dir / "train.jsonl").open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(record) + "\n")
+
+    def _gradient_is_nonfinite(self, grad_norm) -> bool:
+        nonfinite = not bool(torch.isfinite(grad_norm))
+        if dist.is_available() and dist.is_initialized() and dist.get_world_size() > 1:
+            flag = torch.tensor(int(nonfinite), dtype=torch.int32, device=self.device)
+            dist.all_reduce(flag, op=dist.ReduceOp.MAX)
+            nonfinite = bool(flag.item())
+        return nonfinite
+
+    def _record_nonfinite_skip(self, grad_norm, total, config):
+        if not self.allow_nonfinite_skip:
+            raise FloatingPointError(f"非有限梯度: step={self.state.step}")
+        consecutive = self.consecutive_nonfinite_skips + 1
+        total_skips = self.nonfinite_skip_count + 1
+        if consecutive > self.max_consecutive_nonfinite_skips:
+            raise FloatingPointError(
+                f"连续非有限梯度跳过超过{self.max_consecutive_nonfinite_skips}次，停止")
+        if total_skips > self.max_nonfinite_skips:
+            raise FloatingPointError(f"累计非有限梯度跳过超过{self.max_nonfinite_skips}次，停止")
+        self.consecutive_nonfinite_skips = consecutive
+        self.nonfinite_skip_count = total_skips
+        import fcntl
+        import socket
+        course = {}
+        if self.course_log_path is not None and self.course_log_path.exists():
+            rows = self.course_log_path.read_text(encoding="utf-8").splitlines()
+            if rows:
+                latest = json.loads(rows[-1])
+                if latest.get("micro_step") == self.state.micro_step - 1:
+                    course = {key: latest.get(key) for key in (
+                        "source", "domain", "rows", "views")}
+        record = {
+            "event": "optimization_step_skipped",
+            "reason": "nonfinite_gradient",
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "step": self.state.step,
+            "micro_step": self.state.micro_step - 1,
+            "rank": self.rank,
+            "world_size": dist.get_world_size() if dist.is_available() and dist.is_initialized() else 1,
+            "host": socket.gethostname(),
+            "pid": os.getpid(),
+            "session": os.environ.get("S5_SESSION_ID"),
+            "grad_norm": str(float(grad_norm)),
+            "loss_total": float(total.detach()),
+            "optimizer_update": False,
+            "scheduler_policy": "advance_with_course_step",
+            "consecutive_skips": self.consecutive_nonfinite_skips,
+            "nonfinite_skip_count": self.nonfinite_skip_count,
+            "max_consecutive_skips": self.max_consecutive_nonfinite_skips,
+            "max_nonfinite_skips": self.max_nonfinite_skips,
+            **course,
+        }
+        path = self.run_dir / "optimization_skips.jsonl"
+        with path.open("ab") as stream:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+            stream.write(json.dumps(record, ensure_ascii=False, allow_nan=False).encode("utf-8") + b"\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        config["nonfinite_skip_count"] = self.nonfinite_skip_count
 
     def save(self, name: str, config: dict, metadata: dict | None = None):
         return self.checkpoints.save(name, self.model, self.optimizer, self.scheduler,
@@ -230,12 +304,15 @@ class Trainer:
     def fit(self, stream_factory: Callable[[int], Iterable], config: dict):
         if self.state.step >= self.total_steps:
             return self.state
+        config.setdefault("nonfinite_skip_count", self.nonfinite_skip_count)
         started = time.monotonic()
         self.optimizer.zero_grad(set_to_none=True)
         aggregated = {}
         aggregated_count = 0
         batch_samples = 0
         for batch, targets in stream_factory(self.state.micro_step):
+            if self.should_stop():
+                break
             is_last = (self.state.micro_step + 1) % self.accumulation_steps == 0
             sync_context = self.model.no_sync() if (
                 isinstance(self.model, DistributedDataParallel) and not is_last
@@ -256,9 +333,12 @@ class Trainer:
             if not is_last:
                 continue
             grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip)
-            if not torch.isfinite(grad_norm):
-                raise FloatingPointError(f"非有限梯度: step={self.state.step}")
-            self.optimizer.step()
+            skipped = self._gradient_is_nonfinite(grad_norm)
+            if skipped:
+                self._record_nonfinite_skip(grad_norm, total, config)
+            else:
+                self.consecutive_nonfinite_skips = 0
+                self.optimizer.step()
             self.scheduler.step()
             self.optimizer.zero_grad(set_to_none=True)
             self.state.step += 1
@@ -267,7 +347,7 @@ class Trainer:
                 values = {k: v / max(1, aggregated_count) for k, v in aggregated.items()}
                 self._log(values, self.scheduler.get_last_lr()[0],
                           time.monotonic() - started, batch_samples,
-                          grad_norm=float(grad_norm))
+                          grad_norm=None if skipped else float(grad_norm), skipped=skipped)
             aggregated = {}
             aggregated_count = 0
             batch_samples = 0

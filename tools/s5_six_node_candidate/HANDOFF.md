@@ -12,7 +12,7 @@
 - step16900+v3 A-test **已完成90/90**，得分 **58.08142791678441**，complete=true、missing/invalid=[]、官方check一致。相比step10800+v2的59.2906418076102 **下降1.20921389082579**；聚合物提高1.3147，其他三域下降。156个failed.json全部为空，未上传或覆盖正式提交。产物 `official_a_test_step16900_repair_v3/`。
 - **step26700+47rank A-test 已完成**：**59.778077940648124**，90/90、complete=true、missing/invalid=[]、官方check一致；156个failed.json全部为空，进程已结束。相比16900提高1.696650023863711，相比10800提高0.48743613303792444，是当前本地已知最高完整A-test分数。未上传或覆盖正式提交，未停止训练或改变参数。产物 `official_a_test_step26700_47rank_v3/`。
 - **2026-11-07 16:07 历史停止记录**：step30641出现非有限梯度，保护逻辑使47rank退出，未自动重试。源断点为step30600，SHA256 `538f5ce23d0b30e5943a71b55d91fd0008c32b2be5cf61b762a80a6d34b6b603`，47份RNG、optimizer/scheduler/hash和有限参数均核验。`runs/main/control/stop_nonfinite_30641.json` 保留该次故障证据。
-- **16:45 已恢复并继续训练**：session `train-resume_1794040548018092785`，PID2377759，47/47 healthy。step30641的NaN梯度被47rank一致跳过，未执行optimizer.step，scheduler/课程推进；审计 `runs/main/optimization_skips.jsonl`，未将输入误标为坏样本。连续跳过上限3、累计上限20。新checkpoint 30700尚待验收；这不是数值根因已修复的证明。
+- **16:48 恢复及新checkpoint验收通过**：session `train-resume_1794040548018092785`，PID2377759，47/47 healthy。step30641的NaN梯度被47rank一致跳过，未执行optimizer.step，scheduler/课程推进；审计 `runs/main/optimization_skips.jsonl`，未将输入误标为坏样本。连续跳过上限3、累计上限20。step30700的47份RNG、有限参数、hash和skip计数均通过，SHA256 `fb80872d3b472e4bcbce2d6eeba292092a917d55a05bc2cdd8e561bf5e6b4cc8`。报告 `control/resume_after_nonfinite_30700.json`；这是容错恢复，不是数值根因修复或模型选优。
 - 六机 48-rank 小张量 RoCE 通信已通过；它不替代真实 S5 验收。首次导入失败和 r2 拓扑回溯停滞均保留现场，当前 r3 包含完整依赖和搜索上限。
 - 长时稳定性、后续 checkpoint 持续写入和赛事提分仍需继续验证；不得仅凭当前 healthy 宣称已稳定运行10小时或已提分。
 

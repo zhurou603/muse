@@ -147,3 +147,11 @@ $PY -B $TOOL stop --candidate $C --grace-seconds 900 --reason 'operator planned 
 - 不上传赛事平台、不覆盖 `官方提交/` 或 best_fixed。
 - 原 15-rank run 和 17500 checkpoint 保留，可按原两机方式回退。47-rank optimizer/RNG 不得交给未适配的旧启动器。
 - 失败试跑、旧 48 卡通信和首次导入失败现场均保留，不能删除历史或用新 session 掩盖旧错误。
+
+## 8. 训练与完整 A-test 结果包（2026-11-07 18:52）
+
+- ZIP：`tools/s5_training_a_test_results_20261107.zip`；SHA256 `3c8aee67c9a8360dc895dcfc42723ac7198d71d3e32dfcc1e9d9072529af476c`；392917 bytes，40个文件。
+- 四次完整90项A-test：4100=55.92049897958663、10800=59.2906418076102、16900=58.08142791678441、26700=59.778077940648124，官方check全部一致。
+- 含训练YAML/实际运行配置、loss JSONL/CSV/SVG、异常输入与非有限步审计、吞吐、checkpoint血缘/hash、manifest与SHA256SUMS。不包含模型权重、原始预测或原始数据。
+- 训练快照step32200，741条loss；主线未因打包停止。ZIP CRC、CSV/SVG可读性和所有payload hash均通过独立复核。
+- 未上传、未覆盖正式提交、未按latest选模。打包源码为 `tools/package_s5_results.py`。

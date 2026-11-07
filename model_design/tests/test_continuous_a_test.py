@@ -95,6 +95,28 @@ class CheckpointSelectionTests(ContinuousATestCase):
             continuous_a_test.select_checkpoint(self.training)
 
 
+class RepairArtifactTests(ContinuousATestCase):
+    def test_freezes_and_verifies_registered_artifacts(self):
+        source_manifest = self.root / "a_test_encoding_repairs.v3.json"
+        source_root = source_manifest.with_suffix(".data")
+        source_root.mkdir()
+        artifact = source_root / "record.npz"
+        artifact.write_bytes(b"registered-array")
+        manifest = {"contains_labels": False, "artifact_dir": source_root.name,
+                    "repairs": [{"artifact": artifact.name,
+                                 "artifact_sha256": continuous_a_test.sha256(artifact)}]}
+        continuous_a_test.write_json(source_manifest, manifest)
+        daemon = continuous_a_test.ContinuousATest(
+            training_run=self.training, state_dir=self.state, repairs=source_manifest)
+        continuous_a_test.write_json(daemon.repairs_path, manifest)
+        result = daemon.prepare_repair_artifacts()
+        frozen = Path(result["artifact_root"]) / artifact.name
+        self.assertEqual(result["artifact_count"], 1)
+        self.assertTrue(result["all_sha256_verified"])
+        self.assertEqual(frozen.stat().st_ino, artifact.stat().st_ino)
+        self.assertEqual(daemon.prepare_repair_artifacts(), result)
+
+
 class ResultValidationTests(ContinuousATestCase):
     def test_accepts_complete_scores_and_empty_encoding_failures(self):
         pointer = self.make_checkpoint()

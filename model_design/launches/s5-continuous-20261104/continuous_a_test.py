@@ -202,6 +202,32 @@ class ContinuousATest:
                       "status": status, "time": now(), "daemon_pid": os.getpid(), **values}
         write_json(self.state_path, self.state)
 
+    def prepare_repair_artifacts(self):
+        manifest = read_json(self.repairs_path)
+        source_root = self.repairs_source.with_suffix(".data")
+        target_root = self.repairs_path.with_suffix(".data")
+        if manifest.get("contains_labels") is not False:
+            raise RuntimeError("编码修复清单的标签边界不明确")
+        if manifest.get("artifact_dir") != target_root.name or not source_root.is_dir():
+            raise RuntimeError("编码修复表征目录缺失或名称不一致")
+        target_root.mkdir(exist_ok=True)
+        artifacts = {entry["artifact"]: entry for entry in manifest["repairs"]
+                     if entry.get("artifact")}
+        for name, entry in artifacts.items():
+            if Path(name).name != name or not re.fullmatch(r"[0-9a-f]{64}",
+                                                           entry.get("artifact_sha256", "")):
+                raise RuntimeError(f"编码修复表征路径或 SHA256 无效: {name}")
+            source = source_root / name
+            target = target_root / name
+            if not source.is_file():
+                raise RuntimeError(f"编码修复表征缺失: {source}")
+            if not target.exists():
+                os.link(source, target)
+            if sha256(target) != entry["artifact_sha256"]:
+                raise RuntimeError(f"编码修复表征 SHA256 不一致: {name}")
+        return {"artifact_count": len(artifacts), "artifact_root": str(target_root),
+                "source_artifact_root": str(source_root), "all_sha256_verified": True}
+
     def prepare_source(self):
         metadata_path = self.source_dir / "source_snapshot.json"
         if self.code_commit is None and metadata_path.is_file():
@@ -220,6 +246,11 @@ class ContinuousATest:
                     raise RuntimeError(f"冻结源码已变化: {relative}")
             if sha256(self.repairs_path) != metadata["repairs_sha256"]:
                 raise RuntimeError("冻结编码修复清单已变化")
+            artifacts = self.prepare_repair_artifacts()
+            if metadata.get("repairs_artifacts") != artifacts:
+                metadata["repairs_artifacts"] = artifacts
+                write_json(metadata_path, metadata)
+                self.event("repair_artifacts_prepared", **artifacts)
             return metadata
         if self.source_dir.exists():
             raise RuntimeError("源码快照目录已存在但元数据缺失，拒绝覆盖")
@@ -257,6 +288,7 @@ class ContinuousATest:
                         "files": {str(path): sha256(temporary / path)
                                   for path in (LAUNCHER, FAST_EVAL)},
                         "repairs_sha256": repairs_sha,
+                        "repairs_artifacts": self.prepare_repair_artifacts(),
                         "data_links": {"data/muse-a": str(ROOT / "data/muse-a"),
                                        "data/pretrain": str(ROOT / "data/pretrain")},
                         "created_at": now()}
